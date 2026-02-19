@@ -186,7 +186,6 @@ def write_prompt_index(prompt_dir: Path):
     Groups outputs by basename (stem) so each module appears once with links to
     md/html/pdf (if present), e.g.
 
-      100_GRIT_MANUAL_20190826 | md | html | pdf
     """
     md_dir = prompt_dir / "md"
     html_dir = prompt_dir / "html"
@@ -210,6 +209,7 @@ def write_prompt_index(prompt_dir: Path):
     add("pdf", pdf_files)
 
     # Render grouped outputs table
+    
     stems_sorted = sorted(by_stem.keys(), key=lambda s: s.lower())
 
     def link(kind: str, p: Path | None) -> str:
