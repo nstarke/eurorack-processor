@@ -1,5 +1,7 @@
 # Eurorack Processor
 
+[Here is an example of what the output looks like from my rack](https://starkerack.com/)
+
 **Documentation Generator for Eurorack Modules**
 
 This repo is a small Python-based toolkit for generating consistent, repeatable documentation for Eurorack modules from structured inputs (CSV) plus reusable templates/prompts, with optional styling assets.
