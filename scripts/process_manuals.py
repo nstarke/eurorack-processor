@@ -321,13 +321,13 @@ def process_row(
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--prompt", required=True, type=Path)
-    parser.add_argument("--csv", required=True, type=Path)
-    parser.add_argument("--manuals-dir", type=Path, default=Path("manuals"))
-    parser.add_argument("--output-directory", type=Path, default=Path("output"))
+    parser.add_argument("--prompt", required=True, type=Path, help="Path to a file containing a prompt to run against all modules/manuals.")
+    parser.add_argument("--csv", required=True, type=Path, help="Path to csv file containing modules and manual file paths")
+    parser.add_argument("--manuals-dir", type=Path, default=Path("manuals"), help="manuals directory [default='manuals']")
+    parser.add_argument("--output-directory", type=Path, default=Path("output"), help="directory to write output files to [default='output']")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--model", default="gpt-4.1")
-    parser.add_argument("--key-file", type=Path, default=Path("openai.key"))
+    parser.add_argument("--key-file", type=Path, default=Path("openai.key"), help="Path to a file containing an OpenAI API Key [default 'openai.key']")
     parser.add_argument("--css", type=Path, help="Optional CSS file for HTML/PDF styling", default=Path("css/basic.css"))
 
     parser.add_argument("--generate-pdf", default=True, action=argparse.BooleanOptionalAction)
