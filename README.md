@@ -1,20 +1,19 @@
 # Eurorack Processor
 
-**Documentation Generator for Eurorack Modules** :contentReference[oaicite:0]{index=0}
+**Documentation Generator for Eurorack Modules**
 
 This repo is a small Python-based toolkit for generating consistent, repeatable documentation for Eurorack modules from structured inputs (CSV) plus reusable templates/prompts, with optional styling assets.
 
-> Repo structure (top-level): `css/`, `csv/`, `prompts/`, `scripts/` :contentReference[oaicite:1]{index=1}  
-> Primary language: Python (with some CSS) :contentReference[oaicite:2]{index=2}
+Repo structure (top-level): `css/`, `csv/`, `prompts/`, `scripts/`
 
 ---
 
 ## What it does
 
-- Takes module data (typically from `csv/`) :contentReference[oaicite:3]{index=3}
-- Uses prompts/templates (in `prompts/`) to format/assemble doc content :contentReference[oaicite:4]{index=4}
-- Uses scripts (in `scripts/`) to generate output artifacts :contentReference[oaicite:5]{index=5}
-- Applies styling from `css/` when producing web-friendly docs :contentReference[oaicite:6]{index=6}
+- Takes module data (typically from `csv/`) 
+- Uses prompts/templates (in `prompts/`) to format/assemble doc content
+- Uses scripts (in `scripts/`) to generate output artifacts
+- Applies styling from `css/` when producing web-friendly docs
 
 Typical outputs you might generate:
 - A “module manual” page (HTML/Markdown)
