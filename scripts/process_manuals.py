@@ -15,6 +15,28 @@ from openai import OpenAI
 
 # ---------- helpers ----------
 
+def is_probably_pdf(path: Path) -> tuple[bool, str]:
+    """
+    Basic validation to avoid uploading non-PDF files that happen to end in .pdf.
+    Returns (ok, reason).
+    """
+    try:
+        if not path.exists():
+            return False, "file does not exist"
+        if not path.is_file():
+            return False, "not a file"
+        size = path.stat().st_size
+        if size < 8:
+            return False, f"file too small ({size} bytes)"
+        with path.open("rb") as f:
+            head = f.read(5)
+        if head != b"%PDF-":
+            return False, f"missing PDF header (%PDF-), got {head!r}"
+        return True, "ok"
+    except Exception as e:
+        return False, f"exception while checking PDF: {e}"
+    
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -241,29 +263,39 @@ def process_row(
     manuals_out_dir = output_dir / "manuals"
     manuals_out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Keep original manual filename as-is in manuals/ to make it easy to map back to CSV
     manual_pdf_dst = manuals_out_dir / manual_pdf_src.name
     if not manual_pdf_dst.exists():
         shutil.copy2(manual_pdf_src, manual_pdf_dst)
+
+    # Validate the copied manual is actually a PDF (prevents API 400 unsupported_file)
+    ok_pdf, reason = is_probably_pdf(manual_pdf_dst)
+    if not ok_pdf:
+        return (
+            f"[WARN] Skipping {manufacturer} – {module}: "
+            f"manual is not a valid PDF ({manual_pdf_dst}): {reason}"
+        )
 
     # Build a relative link to the manual from md/html/pdf directories
     manual_rel_from_md = Path(ensure_relative_path(md_dir, manual_pdf_dst))
     manual_rel_from_html = Path(ensure_relative_path(html_dir, manual_pdf_dst)) if (generate_html and html_dir) else None
     manual_rel_from_pdf = Path(ensure_relative_path(pdf_dir, manual_pdf_dst)) if (generate_pdf and pdf_dir) else None
 
-    # Upload cache uses the source manual path (stable) to avoid reuploading within a run
+    # Upload cache uses the *destination* manual path (so cache aligns with what you're linking)
     with cache_lock:
-        file_id = upload_cache.get(manual_pdf_src)
+        file_id = upload_cache.get(manual_pdf_dst)
 
     if not file_id:
-        with manual_pdf_src.open("rb") as f:
-            uploaded = client.files.create(file=f, purpose="user_data")
-        file_id = uploaded.id
-        with cache_lock:
-            upload_cache[manual_pdf_src] = file_id
+        try:
+            with manual_pdf_dst.open("rb") as f:
+                uploaded = client.files.create(file=f, purpose="user_data")
+            file_id = uploaded.id
+            with cache_lock:
+                upload_cache[manual_pdf_dst] = file_id
+        except Exception as e:
+            # If the API still rejects it for any reason, do not crash the whole run
+            return f"[WARN] Skipping {manufacturer} – {module}: upload failed for {manual_pdf_dst}: {e}"
 
-    # Add a manual link header to the prompt so the generated markdown includes it
-    # Also prepend it to output explicitly so it always exists even if the model ignores instructions.
+    # Add a manual link header to the markdown so HTML/PDF inherit it.
     manual_link_md = f"[Manual PDF]({manual_rel_from_md.as_posix()})"
     preamble_md = (
         f"# {manufacturer} — {module}\n\n"
@@ -271,16 +303,20 @@ def process_row(
         f"---\n\n"
     )
 
-    response = client.responses.create(
-        model=model,
-        input=[{
-            "role": "user",
-            "content": [
-                {"type": "input_file", "file_id": file_id},
-                {"type": "input_text", "text": base_prompt + "\n\nInclude a link to the manual PDF at the top of the markdown output."},
-            ],
-        }],
-    )
+    try:
+        response = client.responses.create(
+            model=model,
+            input=[{
+                "role": "user",
+                "content": [
+                    {"type": "input_file", "file_id": file_id},
+                    {"type": "input_text", "text": base_prompt + "\n\nInclude a link to the manual PDF at the top of the markdown output."},
+                ],
+            }],
+        )
+    except Exception as e:
+        # Handle API errors (including 400 unsupported_file) gracefully
+        return f"[WARN] Skipping {manufacturer} – {module}: OpenAI request failed: {e}"
 
     md_path = md_dir / f"{name}.md"
     md_path.write_text(preamble_md + response.output_text, encoding="utf-8")
@@ -288,14 +324,11 @@ def process_row(
     outputs = [md_path]
 
     if generate_html:
-        if html_dir is None:
-            raise RuntimeError("Internal error: html_dir is None while generate_html=True")
         html_path = html_dir / f"{name}.html"
         convert_md_to_html(md_path, html_path, css)
         outputs.append(html_path)
 
-        # Ensure the HTML has a visible manual link even if markdown->html didn't render it as desired
-        # (Our preamble does, but this is a safe post-pass.)
+        # Ensure HTML has a manual link (preamble should already do this)
         if manual_rel_from_html is not None:
             html_text = html_path.read_text(encoding="utf-8")
             if "Manual PDF" not in html_text:
@@ -304,14 +337,10 @@ def process_row(
                 html_path.write_text(html_text, encoding="utf-8")
 
     if generate_pdf:
-        if pdf_dir is None:
-            raise RuntimeError("Internal error: pdf_dir is None while generate_pdf=True")
         pdf_path = pdf_dir / f"{name}.pdf"
         convert_md_to_pdf(md_path, pdf_path, css, pdf_engine)
         outputs.append(pdf_path)
-
-        # You can't "link-inject" into a finished PDF reliably without re-rendering,
-        # but since the manual link is in the markdown header, it will appear in the rendered PDF.
+        # Link appears in PDF because it is in the markdown preamble.
 
     return f"[OK] {manufacturer} {module} → " + ", ".join(p.name for p in outputs)
 
