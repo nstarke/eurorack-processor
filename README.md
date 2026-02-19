@@ -30,7 +30,7 @@ Typical outputs you might generate:
 ```bash
 git clone https://github.com/nstarke/eurorack-processor.git
 cd eurorack-processor
-# eurorack-processor
+```
 
 **Documentation Generator for Eurorack Modules** :contentReference[oaicite:0]{index=0}
 
