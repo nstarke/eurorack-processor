@@ -29,38 +29,6 @@ Typical outputs you might generate:
 ```bash
 git clone https://github.com/nstarke/eurorack-processor.git
 cd eurorack-processor
-```     
-
-**Documentation Generator for Eurorack Modules**
-
-This repo is a small Python-based toolkit for generating consistent, repeatable documentation for Eurorack modules from structured inputs (CSV) plus reusable templates/prompts, with optional styling assets.
-
-> Repo structure (top-level): `css/`, `csv/`, `prompts/`, `scripts/`
-> Primary language: Python (with some CSS)
-
----
-
-## What it does
-
-- Takes module data (typically from `csv/`)
-- Uses prompts/templates (in `prompts/`) to format/assemble doc content
-- Uses scripts (in `scripts/`) to generate output artifacts
-- Applies styling from `css/` when producing web-friendly docs
-
-Typical outputs you might generate:
-- A “module manual” page (HTML/Markdown)
-- Spec sheets
-- Tables for I/O, ranges, calibration notes, etc.
-- Assets ready to publish on GitHub Pages or bundle with releases
-
----
-
-## Quick start
-
-### 1) Clone
-```bash
-git clone https://github.com/nstarke/eurorack-processor.git
-cd eurorack-processor
 ```
 
 ### 2) Create a virtualenv (recommended)
