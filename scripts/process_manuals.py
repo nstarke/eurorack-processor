@@ -247,7 +247,10 @@ def process_row(
     manufacturer = row["manufacturer"].strip()
     module = row["module"].strip()
     manual_name = row["manual file name"].strip()
-
+    
+    if not manual_name:
+        return f"[SKIP] {manufacturer} – {module}: Manual Missing!"
+    
     name = safe_basename(manufacturer, module)
 
     # ----- skip EARLY if md already exists -----
