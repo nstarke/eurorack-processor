@@ -209,16 +209,6 @@ def write_prompt_index(prompt_dir: Path):
     add("html", html_files)
     add("pdf", pdf_files)
 
-    # Render manual PDFs as their own list (optional, but kept from your original)
-    def manual_section() -> str:
-        if not manual_files:
-            return "<h2>Manual PDFs</h2><p><em>None</em></p>"
-        items = "\n".join(
-            f'<li><a href="manuals/{htmllib.escape(f.name)}">{htmllib.escape(f.name)}</a></li>'
-            for f in manual_files
-        )
-        return f"<h2>Manual PDFs</h2><ul>{items}</ul>"
-
     # Render grouped outputs table
     stems_sorted = sorted(by_stem.keys(), key=lambda s: s.lower())
 
@@ -279,7 +269,6 @@ def write_prompt_index(prompt_dir: Path):
   <h1>{htmllib.escape(prompt_dir.name)}</h1>
   <p><a href="../index.html">← All prompts</a></p>
 
-  {manual_section()}
   {outputs_table}
 </body>
 </html>
