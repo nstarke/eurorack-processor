@@ -1,0 +1,1 @@
+You are a eurorack modular synthesizer musician.  Analyze the attached manual file for the eurorack module and give me a concise "cheat sheet" on how to use the module.  Include a reference summary of all input and output jacks along with any knob, button, slider, or toggle controls. For all voltage controlled inputs and outputs, make sure to include voltage ranges.

@@ -1,0 +1,77 @@
+/* Base typography */
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.6;
+  margin: 2.5rem;
+  color: #222;
+}
+
+/* Headings */
+h1, h2, h3 {
+  line-height: 1.25;
+  margin-top: 2.2rem;
+}
+
+h1 {
+  font-size: 2.2rem;
+  border-bottom: 3px solid #ddd;
+  padding-bottom: 0.3rem;
+}
+
+h2 {
+  font-size: 1.6rem;
+  border-bottom: 1px solid #eee;
+}
+
+/* Lists */
+ul, ol {
+  margin-left: 1.5rem;
+}
+
+/* Code blocks */
+pre {
+  background: #f6f8fa;
+  padding: 1rem;
+  overflow-x: auto;
+  border-radius: 6px;
+}
+
+code {
+  background: #f6f8fa;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+}
+
+/* Tables */
+table {
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  width: 100%;
+}
+
+th, td {
+  border: 1px solid #ddd;
+  padding: 0.6rem;
+}
+
+th {
+  background: #f0f0f0;
+  text-align: left;
+}
+
+/* Links */
+a {
+  color: #0066cc;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Print tweaks (PDF) */
+@media print {
+  body {
+    margin: 1.5cm;
+  }
+}
