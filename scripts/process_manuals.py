@@ -310,7 +310,7 @@ def process_row(
                 "role": "user",
                 "content": [
                     {"type": "input_file", "file_id": file_id},
-                    {"type": "input_text", "text": base_prompt + "\n\nInclude a link to the manual PDF at the top of the markdown output."},
+                    {"type": "input_text", "text": base_prompt + "\n\nInclude a link to the manual PDF at the top of the markdown output. Also at the bottom include a link to this Github repository https://github.com/nstarke/eurorack-processor with the text 'Generated With Eurorack Processor'"},
                 ],
             }],
         )
