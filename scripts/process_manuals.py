@@ -177,35 +177,114 @@ def convert_md_to_pdf(md_path: Path, pdf_path: Path, css: Path | None, pdf_engin
 
 
 # ---------- index generation ----------
+# --- replace your existing write_prompt_index(prompt_dir: Path) with this version ---
 
 def write_prompt_index(prompt_dir: Path):
-    md_files = sorted((prompt_dir / "md").glob("*.md"))
-    html_files = sorted((prompt_dir / "html").glob("*.html"))
-    pdf_files = sorted((prompt_dir / "pdf").glob("*.pdf"))
-    manual_files = sorted((prompt_dir / "manuals").glob("*.pdf"))
+    """
+    Writes <prompt_dir>/index.html
 
-    def section(title, files, subdir):
-        if not files:
-            return f"<h2>{title}</h2><p><em>None</em></p>"
+    Groups outputs by basename (stem) so each module appears once with links to
+    md/html/pdf (if present), e.g.
+
+      100_GRIT_MANUAL_20190826 | md | html | pdf
+    """
+    md_dir = prompt_dir / "md"
+    html_dir = prompt_dir / "html"
+    pdf_dir = prompt_dir / "pdf"
+    manuals_dir = prompt_dir / "manuals"
+
+    md_files = sorted(md_dir.glob("*.md")) if md_dir.exists() else []
+    html_files = sorted(html_dir.glob("*.html")) if html_dir.exists() else []
+    pdf_files = sorted(pdf_dir.glob("*.pdf")) if pdf_dir.exists() else []
+    manual_files = sorted(manuals_dir.glob("*.pdf")) if manuals_dir.exists() else []
+
+    # Build a map: stem -> { "md": Path, "html": Path, "pdf": Path }
+    by_stem: dict[str, dict[str, Path]] = {}
+
+    def add(kind: str, files: list[Path]):
+        for p in files:
+            by_stem.setdefault(p.stem, {})[kind] = p
+
+    add("md", md_files)
+    add("html", html_files)
+    add("pdf", pdf_files)
+
+    # Render manual PDFs as their own list (optional, but kept from your original)
+    def manual_section() -> str:
+        if not manual_files:
+            return "<h2>Manual PDFs</h2><p><em>None</em></p>"
         items = "\n".join(
-            f'<li><a href="{subdir}/{f.name}">{f.name}</a></li>' for f in files
+            f'<li><a href="manuals/{htmllib.escape(f.name)}">{htmllib.escape(f.name)}</a></li>'
+            for f in manual_files
         )
-        return f"<h2>{title}</h2><ul>{items}</ul>"
+        return f"<h2>Manual PDFs</h2><ul>{items}</ul>"
 
-    html = f"""<!doctype html>
+    # Render grouped outputs table
+    stems_sorted = sorted(by_stem.keys(), key=lambda s: s.lower())
+
+    def link(kind: str, p: Path | None) -> str:
+        if p is None:
+            return '<span style="color:#999">—</span>'
+        # kind label is the short tag "md/html/pdf"
+        href = f"{kind}/{p.name}"
+        return f'<a href="{htmllib.escape(href)}">{htmllib.escape(kind)}</a>'
+
+    if stems_sorted:
+        rows = []
+        for stem in stems_sorted:
+            d = by_stem.get(stem, {})
+            rows.append(
+                "<tr>"
+                f"<td><code>{htmllib.escape(stem)}</code></td>"
+                f"<td>{link('md', d.get('md'))}</td>"
+                f"<td>{link('html', d.get('html'))}</td>"
+                f"<td>{link('pdf', d.get('pdf'))}</td>"
+                "</tr>"
+            )
+        outputs_table = f"""
+<h2>Outputs</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Module</th>
+      <th>md</th>
+      <th>html</th>
+      <th>pdf</th>
+    </tr>
+  </thead>
+  <tbody>
+    {''.join(rows)}
+  </tbody>
+</table>
+"""
+    else:
+        outputs_table = "<h2>Outputs</h2><p><em>None</em></p>"
+
+    html_doc = f"""<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>{prompt_dir.name}</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>{htmllib.escape(prompt_dir.name)}</title>
+  <style>
+    body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }}
+    table {{ border-collapse: collapse; width: 100%; }}
+    th, td {{ border: 1px solid #ddd; padding: 0.5rem 0.6rem; }}
+    th {{ background: #f6f6f6; text-align: left; }}
+    code {{ background: #f3f3f3; padding: 0.1rem 0.3rem; border-radius: 4px; }}
+    a {{ text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+  </style>
+</head>
 <body>
-<h1>{prompt_dir.name}</h1>
-<p><a href="../index.html">← All prompts</a></p>
-{section("Manual PDFs", manual_files, "manuals")}
-{section("Markdown", md_files, "md")}
-{section("HTML", html_files, "html")}
-{section("PDF", pdf_files, "pdf")}
+  <h1>{htmllib.escape(prompt_dir.name)}</h1>
+  <p><a href="../index.html">← All prompts</a></p>
+
+  {manual_section()}
+  {outputs_table}
 </body>
 </html>
 """
-    (prompt_dir / "index.html").write_text(html, encoding="utf-8")
+    (prompt_dir / "index.html").write_text(html_doc, encoding="utf-8")
 
 
 def write_top_level_index(base_output_dir: Path):
@@ -230,6 +309,7 @@ def write_top_level_index(base_output_dir: Path):
 def process_row(
     row,
     base_prompt,
+    base_output: Path,
     output_dir: Path,
     md_dir,
     html_dir,
@@ -247,10 +327,10 @@ def process_row(
     manufacturer = row["manufacturer"].strip()
     module = row["module"].strip()
     manual_name = row["manual file name"].strip()
-    
+
     if not manual_name:
         return f"[SKIP] {manufacturer} – {module}: Manual Missing!"
-    
+
     name = safe_basename(manufacturer, module)
 
     # ----- skip EARLY if md already exists -----
@@ -262,8 +342,8 @@ def process_row(
     if not manual_pdf_src.exists():
         return f"[WARN] Missing manual {manual_pdf_src}"
 
-    # Copy manual into output_dir/<prompt>/manuals/
-    manuals_out_dir = output_dir / "manuals"
+    # Copy manual into output_dir/manuals/
+    manuals_out_dir = base_output / "manuals"
     manuals_out_dir.mkdir(parents=True, exist_ok=True)
 
     manual_pdf_dst = manuals_out_dir / manual_pdf_src.name
@@ -353,13 +433,13 @@ def process_row(
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--prompt", required=True, type=Path, help="Path to a file containing a prompt to run against all modules/manuals.")
-    parser.add_argument("--csv", required=True, type=Path, help="Path to csv file containing modules and manual file paths")
-    parser.add_argument("--manuals-dir", type=Path, default=Path("manuals"), help="Directory to where manuals are initially stored. [default='manuals']")
-    parser.add_argument("--output-directory", type=Path, default=Path("output"), help="Directory to write output files to [default='output']")
+    parser.add_argument("--prompt", required=True, type=Path)
+    parser.add_argument("--csv", required=True, type=Path)
+    parser.add_argument("--manuals-dir", type=Path, default=Path("manuals"))
+    parser.add_argument("--output-directory", type=Path, default=Path("output"))
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--model", default="gpt-4.1")
-    parser.add_argument("--key-file", type=Path, default=Path("openai.key"), help="Path to a file containing an OpenAI API Key [default 'openai.key']")
+    parser.add_argument("--key-file", type=Path, default=Path("openai.key"))
     parser.add_argument("--css", type=Path, help="Optional CSS file for HTML/PDF styling", default=Path("css/basic.css"))
 
     parser.add_argument("--generate-pdf", default=True, action=argparse.BooleanOptionalAction)
@@ -392,7 +472,7 @@ def main():
         pdf_dir.mkdir(parents=True, exist_ok=True)
 
     # New: manuals output directory
-    (output_dir / "manuals").mkdir(parents=True, exist_ok=True)
+    (base_output / "manuals").mkdir(parents=True, exist_ok=True)
 
     rows = read_csv_rows(args.csv, ["manufacturer", "module", "quantity", "manual file name"])
     base_prompt = read_text(args.prompt)
@@ -405,6 +485,7 @@ def main():
             lambda row: process_row(
                 row,
                 base_prompt,
+                base_output,
                 output_dir,
                 md_dir,
                 html_dir,
