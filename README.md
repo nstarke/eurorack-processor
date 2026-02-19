@@ -78,10 +78,13 @@ source .venv/bin/activate
 pip install -r scripts/requirements.txt
 ```
 
+### 4) Install OpenAI API Key
+By default the script looks for an OpenAI API key in a file `openai.key`.
+
+
 ## Usage
 
 ```bash
-python3 scripts/process_manuals.py -h
 usage: process_manuals.py [-h] --prompt PROMPT --csv CSV
                           [--manuals-dir MANUALS_DIR]
                           [--output-directory OUTPUT_DIRECTORY]
@@ -98,9 +101,10 @@ options:
   --csv CSV             Path to csv file containing modules and manual file
                         paths
   --manuals-dir MANUALS_DIR
-                        manuals directory [default='manuals']
+                        Directory to where manuals are initially stored.
+                        [default='manuals']
   --output-directory OUTPUT_DIRECTORY
-                        directory to write output files to [default='output']
+                        Directory to write output files to [default='output']
   --workers WORKERS
   --model MODEL
   --key-file KEY_FILE   Path to a file containing an OpenAI API Key [default
