@@ -177,7 +177,6 @@ def convert_md_to_pdf(md_path: Path, pdf_path: Path, css: Path | None, pdf_engin
 
 
 # ---------- index generation ----------
-# --- replace your existing write_prompt_index(prompt_dir: Path) with this version ---
 
 def write_prompt_index(prompt_dir: Path):
     """
