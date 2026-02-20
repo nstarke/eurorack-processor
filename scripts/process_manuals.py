@@ -278,7 +278,8 @@ def write_prompt_index(prompt_dir: Path):
 def write_top_level_index(base_output_dir: Path):
     items = []
     for d in sorted(p for p in base_output_dir.iterdir() if p.is_dir()):
-        items.append(f'<li><a href="{d.name}/index.html">{d.name}</a></li>')
+        if d.name != '.git':
+            items.append(f'<li><a href="{d.name}/index.html">{d.name}</a></li>')
 
     html = f"""<!doctype html>
 <html>
