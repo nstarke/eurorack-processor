@@ -275,6 +275,63 @@ def write_prompt_index(prompt_dir: Path):
     (prompt_dir / "index.html").write_text(html_doc, encoding="utf-8")
 
 
+def write_directory_index(dir_path: Path, parent_link: str | None = None):
+    """Generate a simple navigable index.html listing files and subdirectories."""
+    try:
+        entries = sorted(dir_path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+    except PermissionError:
+        return
+
+    dirs  = [e for e in entries if e.is_dir() and e.name != ".git"]
+    files = [e for e in entries if e.is_file() and e.name != "index.html"]
+
+    rows = []
+    if parent_link:
+        rows.append(f'<li><a href="{htmllib.escape(parent_link)}">← Parent directory</a></li>')
+    for d in dirs:
+        rows.append(f'<li><a href="{htmllib.escape(d.name)}/index.html">{htmllib.escape(d.name)}/</a></li>')
+    for f in files:
+        rows.append(f'<li><a href="{htmllib.escape(f.name)}">{htmllib.escape(f.name)}</a></li>')
+
+    html = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{htmllib.escape(dir_path.name)}</title>
+  <style>
+    body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }}
+    ul {{ list-style: none; padding: 0; }}
+    li {{ margin: 0.4rem 0; }}
+    a {{ text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+  </style>
+</head>
+<body>
+  <h1>{htmllib.escape(dir_path.name)}</h1>
+  <ul>{"".join(rows)}</ul>
+</body>
+</html>
+"""
+    (dir_path / "index.html").write_text(html, encoding="utf-8")
+
+
+def write_non_prompt_indexes(base_output: Path, prompt_dir_name: str):
+    """
+    Walk base_output and generate index.html for every directory that was NOT
+    created as a prompt output directory (i.e. not named after the prompt stem).
+    Recurses into subdirectories of those non-prompt directories as well.
+    """
+    def recurse(directory: Path, parent_link: str | None):
+        write_directory_index(directory, parent_link=parent_link)
+        for child in sorted(directory.iterdir()):
+            if child.is_dir() and child.name != ".git":
+                recurse(child, parent_link="../index.html")
+
+    for entry in sorted(base_output.iterdir()):
+        if entry.is_dir() and entry.name != ".git" and entry.name != prompt_dir_name:
+            recurse(entry, parent_link="../index.html")
+
+
 def write_top_level_index(base_output_dir: Path):
     items = []
     for d in sorted(p for p in base_output_dir.iterdir() if p.is_dir()):
@@ -495,6 +552,7 @@ def main():
 
     write_prompt_index(output_dir)
     write_top_level_index(base_output)
+    write_non_prompt_indexes(base_output, output_dir.name)
 
     print("Done")
 
