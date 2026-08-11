@@ -13,7 +13,8 @@ Flow:
      HTML and PDF versions (same conversion pipeline as process_manuals.py).
   6. Regenerate the answers directory's index.html listing every answer.
   7. Link the answers index from the top-level index.html next to the answers
-     directory, if not already linked (creating a minimal index if missing).
+     directory — only if answers/index.html exists and isn't already linked
+     (creating a minimal top-level index if missing).
 """
 
 import argparse
@@ -256,11 +257,32 @@ def write_answers_index(answers_dir: Path):
     (answers_dir / "index.html").write_text(html_doc, encoding="utf-8")
 
 
+def index_links_to(text: str, href: str) -> bool:
+    """
+    True if the HTML in `text` already links to `href` (e.g. 'answers/index.html'),
+    accepting equivalent forms such as './answers/index.html', '/answers/index.html',
+    'answers/', or 'answers'.
+    """
+    dir_href = href.removesuffix("/index.html")
+    accepted = {href, dir_href, dir_href + "/"}
+    for match in re.finditer(r"""href\s*=\s*["']([^"']+)["']""", text, re.IGNORECASE):
+        target = htmllib.unescape(match.group(1)).strip()
+        target = target.split("#", 1)[0].split("?", 1)[0]
+        while target.startswith("./"):
+            target = target[2:]
+        target = target.lstrip("/")
+        if target in accepted:
+            return True
+    return False
+
+
 def update_top_level_index(answers_dir: Path) -> Path | None:
     """
     Ensure the index.html in the answers directory's parent (the site root) links
-    to <answers_dir>/index.html. Creates a minimal index if none exists; an
-    existing index is only modified if the link is not already present.
+    to <answers_dir>/index.html. Only acts when <answers_dir>/index.html actually
+    exists. Creates a minimal index if none exists; an existing index is only
+    modified if it doesn't already contain a link to the answers index (in any
+    equivalent form, e.g. './answers/index.html' or 'answers/').
     Skipped entirely when the answers directory is itself the top level (the
     current working directory or a repository root) — its own index.html already
     is the top-level index, and the parent would be outside the project.
@@ -268,6 +290,8 @@ def update_top_level_index(answers_dir: Path) -> Path | None:
     """
     answers_dir = answers_dir.resolve()
     if answers_dir == Path.cwd().resolve() or (answers_dir / ".git").exists():
+        return None
+    if not (answers_dir / "index.html").exists():
         return None
     index_path = answers_dir.parent / "index.html"
     href = f"{answers_dir.name}/index.html"
@@ -287,7 +311,7 @@ def update_top_level_index(answers_dir: Path) -> Path | None:
         return index_path
 
     text = index_path.read_text(encoding="utf-8")
-    if href in text:
+    if index_links_to(text, href):
         return None
     if "</ul>" in text:
         text = text.replace("</ul>", f"{link}</ul>", 1)
