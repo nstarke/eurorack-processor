@@ -486,6 +486,33 @@ class CodexBackend:
         return self._run(full_prompt)
 
 
+# ---------- output naming ----------
+
+FILENAME_TEMPLATE = """Come up with a short, descriptive filename for a document answering
+the following question about a eurorack modular synthesizer system:
+
+{question}
+
+Respond with ONLY the filename: 3-6 lowercase words separated by hyphens, no file
+extension, no other text. Example: patching-krell-with-maths
+"""
+
+
+def generate_filename(backend, question: str) -> str:
+    """Ask the LLM for a descriptive filename slug; fall back to slugifying the prompt."""
+    try:
+        response = backend.complete_text(FILENAME_TEMPLATE.format(question=question))
+        # Take the last non-empty line in case the model adds prose, then sanitize.
+        lines = [line.strip().strip("`") for line in response.splitlines() if line.strip()]
+        slug = slugify(lines[-1]) if lines else ""
+        if slug and slug != "answer":
+            return slug
+        print(f"[WARN] LLM returned an unusable filename ({response!r}); using the prompt instead")
+    except Exception as e:
+        print(f"[WARN] Filename generation failed ({e}); using the prompt instead")
+    return slugify(question)
+
+
 # ---------- scoping ----------
 
 SCOPING_TEMPLATE = """You are helping answer a question about a eurorack modular synthesizer system.
@@ -657,8 +684,10 @@ def main():
     answer = backend.answer_with_documents(answer_prompt, pdf_paths, md_paths)
 
     args.output_directory.mkdir(parents=True, exist_ok=True)
+    print("[INFO] Generating output filename...")
+    name = generate_filename(backend, args.prompt)
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_path = args.output_directory / f"{slugify(args.prompt)}-{timestamp}.md"
+    out_path = args.output_directory / f"{name}-{timestamp}.md"
 
     scoped_lines = "\n".join(
         f"- {r['manufacturer'].strip()} {r['module'].strip()}" for r in scoped
