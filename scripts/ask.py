@@ -5,8 +5,10 @@ Ask a question about your eurorack system.
 Flow:
   1. Take a question ("prompt") as a CLI argument.
   2. Ask the LLM backend which modules from the CSV are in scope for the question.
-  3. Find the corresponding manual PDFs via the CSV ("manual file name" column).
-  4. Submit the question plus those manuals to the backend (openai or claude).
+  3. Find the corresponding manual PDFs via the CSV ("manual file name" column),
+     plus any previous answers in the answers directory whose "Modules In Scope"
+     list involves an in-scope module.
+  4. Submit the question plus those manuals and previous answers to the backend.
   5. Write the answer as a markdown file into the answers output directory.
 """
 
@@ -68,6 +70,40 @@ def is_probably_pdf(path: Path) -> tuple[bool, str]:
         return False, f"exception while checking PDF: {e}"
 
 
+def answer_scoped_modules(text: str) -> set[str]:
+    """Parse the '## Modules In Scope' list out of a previously written answer."""
+    modules: set[str] = set()
+    in_section = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.lower() == "## modules in scope":
+            in_section = True
+        elif in_section:
+            if stripped.startswith("- "):
+                modules.add(stripped[2:].strip().lower())
+            elif stripped.startswith("#") or stripped.startswith("---"):
+                break
+    return modules
+
+
+def find_markdown_docs(scoped: list[dict], answers_dir: Path) -> list[Path]:
+    """Find previous answers in the answers directory involving any in-scope module."""
+    if not answers_dir.exists():
+        return []
+    targets = {
+        f"{row['manufacturer'].strip()} {row['module'].strip()}".lower() for row in scoped
+    }
+    docs: list[Path] = []
+    for md in sorted(answers_dir.rglob("*.md")):
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if targets & answer_scoped_modules(text):
+            docs.append(md)
+    return docs
+
+
 def slugify(text: str, max_len: int = 60) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", text.strip().lower()).strip("-")
     return slug[:max_len].rstrip("-") or "answer"
@@ -104,12 +140,19 @@ class OpenAIBackend:
         )
         return response.output_text
 
-    def answer_with_pdfs(self, prompt: str, pdf_paths: list[Path]) -> str:
+    def answer_with_documents(self, prompt: str, pdf_paths: list[Path], md_paths: list[Path]) -> str:
         content = []
         for pdf in pdf_paths:
             with pdf.open("rb") as f:
                 uploaded = self.client.files.create(file=f, purpose="user_data")
             content.append({"type": "input_file", "file_id": uploaded.id})
+        # Markdown is plain text, so it goes inline rather than as a file upload.
+        for md in md_paths:
+            text = md.read_text(encoding="utf-8", errors="replace")
+            content.append({
+                "type": "input_text",
+                "text": f"--- Previous answer document: {md.name} ---\n\n{text}",
+            })
         content.append({"type": "input_text", "text": prompt})
 
         response = self.client.responses.create(
@@ -152,14 +195,21 @@ class ClaudeBackend:
     def complete_text(self, prompt: str) -> str:
         return self._run(prompt)
 
-    def answer_with_pdfs(self, prompt: str, pdf_paths: list[Path]) -> str:
-        file_list = "\n".join(f"- {p.resolve()}" for p in pdf_paths)
+    def answer_with_documents(self, prompt: str, pdf_paths: list[Path], md_paths: list[Path]) -> str:
+        all_paths = pdf_paths + md_paths
+        pdf_list = "\n".join(f"- {p.resolve()}" for p in pdf_paths)
         full_prompt = (
             f"{prompt}\n\n"
-            f"Read the following manual PDFs before answering:\n{file_list}\n"
+            f"Read the following manual PDFs before answering:\n{pdf_list}\n"
         )
+        if md_paths:
+            md_list = "\n".join(f"- {p.resolve()}" for p in md_paths)
+            full_prompt += (
+                f"\nAlso read these previous question-and-answer documents "
+                f"about the modules:\n{md_list}\n"
+            )
         add_dirs: list[str] = []
-        for parent in {str(p.resolve().parent) for p in pdf_paths}:
+        for parent in {str(p.resolve().parent) for p in all_paths}:
             add_dirs.extend(["--add-dir", parent])
         return self._run(full_prompt, extra_args=["--allowedTools", "Read"] + add_dirs)
 
@@ -210,13 +260,19 @@ class CodexBackend:
     def complete_text(self, prompt: str) -> str:
         return self._run(prompt)
 
-    def answer_with_pdfs(self, prompt: str, pdf_paths: list[Path]) -> str:
-        file_list = "\n".join(f"- {p.resolve()}" for p in pdf_paths)
+    def answer_with_documents(self, prompt: str, pdf_paths: list[Path], md_paths: list[Path]) -> str:
+        pdf_list = "\n".join(f"- {p.resolve()}" for p in pdf_paths)
         full_prompt = (
             f"{prompt}\n\n"
             f"Read the following manual PDFs before answering (extract their text with "
-            f"a tool such as pdftotext if needed):\n{file_list}\n"
+            f"a tool such as pdftotext if needed):\n{pdf_list}\n"
         )
+        if md_paths:
+            md_list = "\n".join(f"- {p.resolve()}" for p in md_paths)
+            full_prompt += (
+                f"\nAlso read these previous question-and-answer documents "
+                f"about the modules:\n{md_list}\n"
+            )
         return self._run(full_prompt)
 
 
@@ -276,6 +332,9 @@ def main():
                         help="Path to csv file containing modules and manual file paths (e.g. README.csv)")
     parser.add_argument("--manuals-dir", type=Path, default=None,
                         help="Directory where manual PDFs are stored [default: the CSV's directory]")
+    parser.add_argument("--markdown-dir", type=Path, default=None,
+                        help="Directory searched recursively for previous answers involving "
+                             "the in-scope modules [default: the answers output directory]")
     parser.add_argument("--output-directory", type=Path, default=Path("answers"),
                         help="Directory to write the answer markdown to [default='answers']")
     parser.add_argument("--llm-provider", choices=["openai", "claude", "codex"], default="openai",
@@ -332,8 +391,13 @@ def main():
             continue
         pdf_paths.append(pdf)
 
-    if not pdf_paths:
-        sys.exit("[ERROR] No valid manual PDFs found for the in-scope modules.")
+    md_paths = find_markdown_docs(scoped, args.markdown_dir or args.output_directory)
+    if md_paths:
+        print(f"[INFO] Found {len(md_paths)} previous answer(s): "
+              + ", ".join(p.name for p in md_paths))
+
+    if not pdf_paths and not md_paths:
+        sys.exit("[ERROR] No valid manual PDFs or markdown documents found for the in-scope modules.")
 
     if len(pdf_paths) > args.max_manuals:
         dropped = pdf_paths[args.max_manuals:]
@@ -342,15 +406,18 @@ def main():
               + ", ".join(p.name for p in dropped))
 
     module_names = ", ".join(f"{r['manufacturer'].strip()} {r['module'].strip()}" for r in scoped)
+    attachments = "module manuals" if not md_paths else \
+        "module manuals and previous question-and-answer documents"
     answer_prompt = (
-        "You are a eurorack modular synthesizer expert. Using the attached module manuals "
+        f"You are a eurorack modular synthesizer expert. Using the attached {attachments} "
         f"(for: {module_names}), answer the following question. "
         "Format your answer as markdown.\n\n"
         f"Question: {args.prompt}"
     )
 
-    print(f"[INFO] Asking {args.llm_provider} with {len(pdf_paths)} manual(s)...")
-    answer = backend.answer_with_pdfs(answer_prompt, pdf_paths)
+    print(f"[INFO] Asking {args.llm_provider} with {len(pdf_paths)} manual(s) "
+          f"and {len(md_paths)} markdown document(s)...")
+    answer = backend.answer_with_documents(answer_prompt, pdf_paths, md_paths)
 
     args.output_directory.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")

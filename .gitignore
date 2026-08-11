@@ -1,2 +1,10 @@
 *.key
 .venv
+__pycache__/
+*.pyc
+
+# generated outputs
+answers/
+output/
+manuals/
+*.pdf
