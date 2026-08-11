@@ -168,6 +168,11 @@ line and only consults the manuals that are relevant:
    links to `answers/index.html` — an existing index gets the link appended to
    its list only if missing; if there is no index yet, a minimal one is created
 
+The output directory must be a dedicated subdirectory: pointing
+`--output-directory` at the current directory or a repository root is refused,
+since the answer files and `index.html` would be written straight into it
+(overwriting any existing `index.html`).
+
 Supported LLM providers:
 - `claude` (default) — uses the [Claude Code](https://claude.com/claude-code) CLI
   (`claude` must be on your `PATH`); no API key file needed. Defaults to the

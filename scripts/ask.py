@@ -256,14 +256,19 @@ def write_answers_index(answers_dir: Path):
     (answers_dir / "index.html").write_text(html_doc, encoding="utf-8")
 
 
-def update_top_level_index(answers_dir: Path) -> bool:
+def update_top_level_index(answers_dir: Path) -> Path | None:
     """
     Ensure the index.html in the answers directory's parent (the site root) links
     to <answers_dir>/index.html. Creates a minimal index if none exists; an
     existing index is only modified if the link is not already present.
-    Returns True if the top-level index was created or changed.
+    Skipped entirely when the answers directory is itself the top level (the
+    current working directory or a repository root) — its own index.html already
+    is the top-level index, and the parent would be outside the project.
+    Returns the path of the created/changed index, or None.
     """
     answers_dir = answers_dir.resolve()
+    if answers_dir == Path.cwd().resolve() or (answers_dir / ".git").exists():
+        return None
     index_path = answers_dir.parent / "index.html"
     href = f"{answers_dir.name}/index.html"
     link = f'<li><a href="{htmllib.escape(href)}">{htmllib.escape(answers_dir.name)}</a></li>'
@@ -279,11 +284,11 @@ def update_top_level_index(answers_dir: Path) -> bool:
 </html>
 """
         index_path.write_text(html_doc, encoding="utf-8")
-        return True
+        return index_path
 
     text = index_path.read_text(encoding="utf-8")
     if href in text:
-        return False
+        return None
     if "</ul>" in text:
         text = text.replace("</ul>", f"{link}</ul>", 1)
     elif "</body>" in text:
@@ -291,7 +296,7 @@ def update_top_level_index(answers_dir: Path) -> bool:
     else:
         text += f"\n<ul>{link}</ul>\n"
     index_path.write_text(text, encoding="utf-8")
-    return True
+    return index_path
 
 
 # ---------- backends ----------
@@ -571,6 +576,15 @@ def main():
     if not args.input_csv.exists():
         sys.exit(f"[ERROR] CSV not found: {args.input_csv}")
 
+    out_dir = args.output_directory.resolve()
+    if out_dir == Path.cwd().resolve() or (out_dir / ".git").exists():
+        sys.exit(
+            f"[ERROR] --output-directory resolves to {out_dir}, which is the current "
+            "directory or a repository root. Answers and index.html would be written "
+            "straight into it (overwriting any existing index.html); use a dedicated "
+            "subdirectory such as 'answers' instead."
+        )
+
     manuals_dir = args.manuals_dir
 
     try:
@@ -683,9 +697,9 @@ def main():
     write_answers_index(args.output_directory)
     print(f"[OK] Index updated at {args.output_directory / 'index.html'}")
 
-    if update_top_level_index(args.output_directory):
-        print(f"[OK] Top-level index updated at "
-              f"{args.output_directory.resolve().parent / 'index.html'}")
+    top_index = update_top_level_index(args.output_directory)
+    if top_index:
+        print(f"[OK] Top-level index updated at {top_index}")
 
 
 if __name__ == "__main__":
