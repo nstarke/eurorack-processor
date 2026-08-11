@@ -10,11 +10,15 @@ Flow:
      list involves an in-scope module.
   4. Submit the question plus those manuals and previous answers to the backend.
   5. Write the answer as a markdown file into the answers output directory.
+  6. Regenerate the answers directory's index.html listing every answer.
+  7. Link the answers index from the top-level index.html next to the answers
+     directory, if not already linked (creating a minimal index if missing).
 """
 
 import argparse
 import csv
 import datetime
+import html as htmllib
 import json
 import re
 import shutil
@@ -122,6 +126,150 @@ def extract_json_array(text: str) -> list:
             raise ValueError(f"No JSON array found in response:\n{text}")
         text = text[start : end + 1]
     return json.loads(text)
+
+
+# ---------- index generation ----------
+
+def parse_answer_question(text: str) -> str | None:
+    """Pull the question text out of an answer file's '# Question' section."""
+    in_section = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.lower() == "# question":
+            in_section = True
+        elif in_section:
+            if stripped.startswith("#") or stripped.startswith("---"):
+                break
+            if stripped:
+                return stripped
+    return None
+
+
+def parse_answer_modules(text: str) -> list[str]:
+    """Like answer_scoped_modules, but preserves the original casing for display."""
+    modules: list[str] = []
+    in_section = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.lower() == "## modules in scope":
+            in_section = True
+        elif in_section:
+            if stripped.startswith("- "):
+                modules.append(stripped[2:].strip())
+            elif stripped.startswith("#") or stripped.startswith("---"):
+                break
+    return modules
+
+
+def write_answers_index(answers_dir: Path):
+    """
+    Regenerate <answers_dir>/index.html listing every answer markdown file,
+    newest first, with its question, in-scope modules, and date.
+    """
+    entries = []
+    for md in sorted(answers_dir.rglob("*.md")):
+        try:
+            text = md.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        question = parse_answer_question(text) or md.stem
+        modules = sorted(parse_answer_modules(text), key=str.lower)
+        match = re.search(r"(\d{8})-(\d{6})$", md.stem)
+        if match:
+            date, time = match.group(1), match.group(2)
+            timestamp = f"{date[:4]}-{date[4:6]}-{date[6:]} {time[:2]}:{time[2:4]}"
+        else:
+            timestamp = ""
+        entries.append((timestamp, question, modules, md.relative_to(answers_dir).as_posix()))
+
+    entries.sort(key=lambda e: e[0], reverse=True)
+
+    if entries:
+        rows = []
+        for timestamp, question, modules, href in entries:
+            rows.append(
+                "<tr>"
+                f'<td><a href="{htmllib.escape(href)}">{htmllib.escape(question)}</a></td>'
+                f"<td>{htmllib.escape(', '.join(modules))}</td>"
+                f"<td>{htmllib.escape(timestamp)}</td>"
+                "</tr>"
+            )
+        answers_table = f"""
+<table>
+  <thead>
+    <tr>
+      <th>Question</th>
+      <th>Modules In Scope</th>
+      <th>Date</th>
+    </tr>
+  </thead>
+  <tbody>
+    {''.join(rows)}
+  </tbody>
+</table>
+"""
+    else:
+        answers_table = "<p><em>No answers yet.</em></p>"
+
+    html_doc = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Answers</title>
+  <style>
+    body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }}
+    table {{ border-collapse: collapse; width: 100%; }}
+    th, td {{ border: 1px solid #ddd; padding: 0.5rem 0.6rem; }}
+    th {{ background: #f6f6f6; text-align: left; }}
+    a {{ text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+  </style>
+</head>
+<body>
+  <h1>Answers</h1>
+  {answers_table}
+</body>
+</html>
+"""
+    (answers_dir / "index.html").write_text(html_doc, encoding="utf-8")
+
+
+def update_top_level_index(answers_dir: Path) -> bool:
+    """
+    Ensure the index.html in the answers directory's parent (the site root) links
+    to <answers_dir>/index.html. Creates a minimal index if none exists; an
+    existing index is only modified if the link is not already present.
+    Returns True if the top-level index was created or changed.
+    """
+    answers_dir = answers_dir.resolve()
+    index_path = answers_dir.parent / "index.html"
+    href = f"{answers_dir.name}/index.html"
+    link = f'<li><a href="{htmllib.escape(href)}">{htmllib.escape(answers_dir.name)}</a></li>'
+
+    if not index_path.exists():
+        html_doc = f"""<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Index</title></head>
+<body>
+<h1>Index</h1>
+<ul>{link}</ul>
+</body>
+</html>
+"""
+        index_path.write_text(html_doc, encoding="utf-8")
+        return True
+
+    text = index_path.read_text(encoding="utf-8")
+    if href in text:
+        return False
+    if "</ul>" in text:
+        text = text.replace("</ul>", f"{link}</ul>", 1)
+    elif "</body>" in text:
+        text = text.replace("</body>", f"<ul>{link}</ul>\n</body>", 1)
+    else:
+        text += f"\n<ul>{link}</ul>\n"
+    index_path.write_text(text, encoding="utf-8")
+    return True
 
 
 # ---------- backends ----------
@@ -484,6 +632,13 @@ def main():
     )
     out_path.write_text(header + answer + "\n", encoding="utf-8")
     print(f"[OK] Answer written to {out_path}")
+
+    write_answers_index(args.output_directory)
+    print(f"[OK] Index updated at {args.output_directory / 'index.html'}")
+
+    if update_top_level_index(args.output_directory):
+        print(f"[OK] Top-level index updated at "
+              f"{args.output_directory.resolve().parent / 'index.html'}")
 
 
 if __name__ == "__main__":

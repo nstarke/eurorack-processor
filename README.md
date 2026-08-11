@@ -63,10 +63,12 @@ from the repo root and use:
 
 Imports a ModularGrid rack: runs `find_manuals.py --rack-url` to build
 `README.csv` from the rack's module list and find/download every module's
-manual PDF into `manuals/`. Accepts any public rack URL containing the rack id
-(data sheet or rack view link). Finishes with a summary of real manuals
-downloaded, product-page fallbacks, and modules where no manual was found.
-Safe to re-run — only modules without a valid PDF are (re)processed.
+manual PDF into `manuals/`, then runs `process_manuals.py` (with
+`prompts/cheatsheet.txt`) to generate per-module documentation pages into
+`output/`. Accepts any public rack URL containing the rack id (data sheet or
+rack view link). Finishes with a summary of real manuals downloaded,
+product-page fallbacks, modules where no manual was found, and the generated
+docs. Safe to re-run — only modules without a valid PDF are (re)processed.
 
 ```
 /eurorack-import https://modulargrid.net/e/modules_racks/data_sheet/2250471
@@ -153,6 +155,12 @@ line and only consults the manuals that are relevant:
    provider
 4. Writes the answer as a markdown file — including the original question and the
    in-scope module list — to the `answers` output directory
+5. Regenerates `answers/index.html`: a table of every answer (newest first) with
+   its question, in-scope modules, and date, linking to the markdown files —
+   like the navigable indexes `process_manuals.py` writes for its output
+6. Makes sure the top-level `index.html` (in the answers directory's parent)
+   links to `answers/index.html` — an existing index gets the link appended to
+   its list only if missing; if there is no index yet, a minimal one is created
 
 Supported LLM providers:
 - `claude` (default) — uses the [Claude Code](https://claude.com/claude-code) CLI

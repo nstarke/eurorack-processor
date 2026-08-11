@@ -1,10 +1,10 @@
 ---
 name: eurorack-import
-description: Import a ModularGrid rack — build README.csv from the rack URL and find/download all module manuals via scripts/find_manuals.py. Use when the user provides a modulargrid.net rack or data_sheet URL, or asks to import/refresh their rack.
+description: Import a ModularGrid rack — build README.csv from the rack URL, find/download all module manuals via scripts/find_manuals.py, then generate per-module documentation via scripts/process_manuals.py. Use when the user provides a modulargrid.net rack or data_sheet URL, or asks to import/refresh their rack.
 argument-hint: "[MODULARGRID_URL]"
 ---
 
-Import a ModularGrid rack into this repo: build the module CSV and download every module's manual PDF.
+Import a ModularGrid rack into this repo: build the module CSV, download every module's manual PDF, then generate the documentation pages from those manuals.
 
 The rack URL is: $ARGUMENTS
 
@@ -33,16 +33,36 @@ The rack URL is: $ARGUMENTS
      run just resumes where it left off.
    - Do not edit `README.csv` while the script is running.
 
-3. **Verify and report.** When the run finishes:
+3. **Run the manual processor.** Once the import finishes, generate the per-module
+   documentation pages (markdown/HTML/PDF plus navigable `index.html` pages) into
+   `output/`:
+
+   ```bash
+   .venv/bin/python3 scripts/process_manuals.py \
+     --prompt prompts/cheatsheet.txt \
+     --input-csv README.csv \
+     --manuals-dir manuals \
+     --llm-provider claude
+   ```
+
+   Notes:
+   - `--llm-provider claude` matters: unlike the other scripts, this one defaults to
+     the openai provider (which needs an `openai.key` file).
+   - This runs one LLM call per module too, so also run it in the background and
+     monitor. HTML/PDF styling comes from `css/basic.css` by default.
+
+4. **Verify and report.** When both runs finish:
    - Read `README.csv` and count the rows.
    - List any rows whose `manual file name` column is empty — these are modules where
      no manual, product page, or archive.org fallback was found.
    - Note which downloaded files end in `_Product_Page.pdf` (product page saved as PDF
      because no real manual exists).
+   - Check that `output/` contains generated docs for the modules (per-prompt
+     directory with `md/`, `html/`, `pdf/` subdirectories and an `index.html`).
    - Summarize for the user: total modules, real manuals downloaded, product-page
-     fallbacks, and missing modules. For missing modules, mention that re-running the
-     skill retries only those rows, and that a manual can be dropped into `manuals/`
-     by hand and its filename added to the CSV.
+     fallbacks, missing modules, and where the generated docs landed. For missing
+     modules, mention that re-running the skill retries only those rows, and that a
+     manual can be dropped into `manuals/` by hand and its filename added to the CSV.
 
 ## Troubleshooting
 

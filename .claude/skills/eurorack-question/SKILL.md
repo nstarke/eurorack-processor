@@ -39,6 +39,8 @@ The question is: $ARGUMENTS
    just created (newest file in `answers/`, or take the path from the script's output):
    - Read it and give the user the answer content (not just the file path), plus the
      "Modules In Scope" list and where the file was saved.
+   - The script also regenerates `answers/index.html` (a browsable table of all
+     answers); no extra step is needed for that.
 
 ## Troubleshooting
 
