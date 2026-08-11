@@ -97,8 +97,8 @@ running a prompt file against each module's manual, plus navigable `index.html`
 pages for browsing the output tree.
 
 Supports the same LLM providers as `ask.py` (see below for authentication):
-`openai` (the default; reads the API key from `openai.key`), `claude`
-(Claude Code CLI, default model `claude-fable-5`), and `codex` (Codex CLI).
+`claude` (the default; Claude Code CLI, default model `claude-fable-5`),
+`openai` (reads the API key from `openai.key`), and `codex` (Codex CLI).
 
 ```bash
 usage: process_manuals.py [-h] --prompt PROMPT --input-csv INPUT_CSV
@@ -126,9 +126,9 @@ options:
   --workers WORKERS
   --llm-provider {openai,claude,codex}
                         LLM provider: OpenAI API, Claude Code CLI, or Codex
-                        CLI [default='openai']
-  --model MODEL         Model override (backend-specific; default gpt-4.1 for
-                        openai, claude-fable-5 for claude)
+                        CLI [default='claude']
+  --model MODEL         Model override (backend-specific; default claude-
+                        fable-5 for claude, gpt-4.1 for openai)
   --key-file KEY_FILE   Path to a file containing an OpenAI API Key; only used
                         with --llm-provider openai [default 'openai.key']
   --css CSS             Optional CSS file for HTML/PDF styling

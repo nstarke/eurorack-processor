@@ -588,11 +588,11 @@ def main():
     parser.add_argument("--manuals-dir", type=Path, default=Path("manuals"))
     parser.add_argument("--output-directory", type=Path, default=Path("output"))
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--llm-provider", choices=["openai", "claude", "codex"], default="openai",
-                        help="LLM provider: OpenAI API, Claude Code CLI, or Codex CLI [default='openai']")
+    parser.add_argument("--llm-provider", choices=["openai", "claude", "codex"], default="claude",
+                        help="LLM provider: OpenAI API, Claude Code CLI, or Codex CLI [default='claude']")
     parser.add_argument("--model", default=None,
-                        help="Model override (backend-specific; default gpt-4.1 for openai, "
-                             "claude-fable-5 for claude)")
+                        help="Model override (backend-specific; default claude-fable-5 for claude, "
+                             "gpt-4.1 for openai)")
     parser.add_argument("--key-file", type=Path, default=Path("openai.key"),
                         help="Path to a file containing an OpenAI API Key; only used with "
                              "--llm-provider openai [default 'openai.key']")
