@@ -12,6 +12,9 @@ Input, one of:
                https://modulargrid.net/e/modules_racks/data_sheet/2250471);
                the rack's module list is fetched from its public view page
 
+With no input flag at all, README.csv in the current directory is used as the
+--input-csv.
+
 For each module the script:
 
   1. Uses an LLM CLI (`claude -p` or `codex exec`) with web search to locate
@@ -551,14 +554,15 @@ def main():
     parser = argparse.ArgumentParser(
         description="Find and download manuals for a list of eurorack modules."
     )
-    source = parser.add_mutually_exclusive_group(required=True)
+    source = parser.add_mutually_exclusive_group()
     source.add_argument("--modules", type=Path,
                         help="Newline-delimited list of modules ('-' reads stdin). "
                              "Lines may be free text ('Make Noise Maths') or 'manufacturer,module'.")
     source.add_argument("--input-csv", type=Path,
                         help="Existing README.csv-style CSV; rows whose 'manual file name' "
                              "column is missing, empty, or not a valid PDF on disk are "
-                             "(re)processed. Header row and the fourth column are optional.")
+                             "(re)processed. Header row and the fourth column are optional. "
+                             "[default: 'README.csv' when neither --modules nor --rack-url is given]")
     source.add_argument("--rack-url",
                         help="ModularGrid rack URL (e.g. "
                              "https://modulargrid.net/e/modules_racks/data_sheet/2250471); "
@@ -566,17 +570,23 @@ def main():
     parser.add_argument("--output-csv", type=Path, default=None,
                         help="CSV to create/update, in eurorack-manuals-repo README.csv format "
                              "[default: --input-csv if given, else 'README.csv']")
-    parser.add_argument("--manuals-dir", type=Path, default=None,
-                        help="Directory to download manual PDFs into "
-                             "[default: the --input-csv's directory if given, else 'manuals']")
+    parser.add_argument("--manuals-dir", type=Path, default=Path("manuals"),
+                        help="Directory to download manual PDFs into [default='manuals']")
     parser.add_argument("--llm-provider", choices=["claude", "codex"], default="claude",
                         help="LLM CLI used to research manual URLs [default='claude']")
     parser.add_argument("--model", default=None,
                         help="Model override (backend-specific)")
     args = parser.parse_args()
 
+    # No source given: default to filling in the gaps of ./README.csv.
+    if not (args.modules or args.input_csv or args.rack_url):
+        args.input_csv = Path("README.csv")
+        if not args.input_csv.exists():
+            sys.exit("[ERROR] No README.csv found in the current directory. "
+                     "Pass --modules, --input-csv, or --rack-url (see --help).")
+
     output_csv = args.output_csv or args.input_csv or Path("README.csv")
-    manuals_dir = args.manuals_dir or (args.input_csv.parent if args.input_csv else Path("manuals"))
+    manuals_dir = args.manuals_dir
 
     try:
         if args.llm_provider == "claude":

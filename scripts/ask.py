@@ -126,6 +126,41 @@ def extract_json_array(text: str) -> list:
 
 # ---------- backends ----------
 
+# Sentinel for a bare `--model` with no value: list models instead of running.
+LIST_MODELS = "<list>"
+
+# Common model choices per provider, shown by a bare `--model` (no value).
+# Any other model ID the backend supports may also be passed.
+KNOWN_MODELS = {
+    "claude": [
+        ("claude-fable-5", "Claude Fable 5 (default)"),
+        ("claude-opus-5", "Claude Opus 5"),
+        ("claude-sonnet-5", "Claude Sonnet 5"),
+        ("claude-haiku-4-5", "Claude Haiku 4.5"),
+        ("fable / opus / sonnet / haiku", "aliases for the latest model of each tier"),
+    ],
+    "codex": [
+        ("gpt-5.1-codex", "GPT-5.1 Codex"),
+        ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini"),
+        ("gpt-5.1", "GPT-5.1"),
+        ("gpt-5-codex", "GPT-5 Codex"),
+        ("gpt-5", "GPT-5"),
+    ],
+    "openai": [
+        ("gpt-4.1", "GPT-4.1 (default)"),
+        ("gpt-4.1-mini", "GPT-4.1 mini"),
+        ("gpt-4o", "GPT-4o"),
+        ("gpt-4o-mini", "GPT-4o mini"),
+    ],
+}
+
+
+def print_known_models(provider: str) -> None:
+    print(f"Known models for --llm-provider {provider}:")
+    for model_id, description in KNOWN_MODELS[provider]:
+        print(f"  {model_id:<30} {description}")
+    print("Any other model ID the backend supports may also be passed to --model.")
+
 class OpenAIBackend:
     def __init__(self, key_file: Path, model: str | None):
         from openai import OpenAI
@@ -179,7 +214,7 @@ class ClaudeBackend:
                 "Run `claude` and use the /login command to sign in with your "
                 "Claude Pro/Max subscription, then re-run this script."
             )
-        self.model = model
+        self.model = model or "claude-fable-5"
 
     def _run(self, prompt: str, extra_args: list[str] | None = None) -> str:
         cmd = ["claude", "-p"]
@@ -326,21 +361,24 @@ def determine_scope(backend, question: str, rows: list[dict]) -> list[dict]:
 def main():
     parser = argparse.ArgumentParser(description="Answer a question using in-scope module manuals.")
 
-    parser.add_argument("--prompt", required=True,
+    parser.add_argument("--prompt",
                         help="The question to answer.")
-    parser.add_argument("--csv", required=True, type=Path,
-                        help="Path to csv file containing modules and manual file paths (e.g. README.csv)")
-    parser.add_argument("--manuals-dir", type=Path, default=None,
-                        help="Directory where manual PDFs are stored [default: the CSV's directory]")
+    parser.add_argument("--input-csv", type=Path, default=Path("README.csv"),
+                        help="Path to csv file containing modules and manual file paths "
+                             "[default='README.csv']")
+    parser.add_argument("--manuals-dir", type=Path, default=Path("manuals"),
+                        help="Directory where manual PDFs are stored [default='manuals']")
     parser.add_argument("--markdown-dir", type=Path, default=None,
                         help="Directory searched recursively for previous answers involving "
                              "the in-scope modules [default: the answers output directory]")
     parser.add_argument("--output-directory", type=Path, default=Path("answers"),
                         help="Directory to write the answer markdown to [default='answers']")
-    parser.add_argument("--llm-provider", choices=["openai", "claude", "codex"], default="openai",
-                        help="LLM provider: OpenAI API, Claude Code CLI, or Codex CLI [default='openai']")
-    parser.add_argument("--model", default=None,
-                        help="Model override (backend-specific; default gpt-4.1 for openai)")
+    parser.add_argument("--llm-provider", choices=["openai", "claude", "codex"], default="claude",
+                        help="LLM provider: OpenAI API, Claude Code CLI, or Codex CLI [default='claude']")
+    parser.add_argument("--model", nargs="?", const=LIST_MODELS, default=None,
+                        help="Model override (backend-specific; default claude-fable-5 for claude, "
+                             "gpt-4.1 for openai). Pass --model with no value to list known "
+                             "models for the selected provider.")
     parser.add_argument("--key-file", type=Path, default=Path("openai.key"),
                         help="Path to a file containing an OpenAI API Key [default 'openai.key']")
     parser.add_argument("--max-manuals", type=int, default=10,
@@ -348,7 +386,17 @@ def main():
 
     args = parser.parse_args()
 
-    manuals_dir = args.manuals_dir or args.csv.parent
+    if args.model == LIST_MODELS:
+        print_known_models(args.llm_provider)
+        sys.exit(0)
+
+    # Required unless we exited above to list models.
+    if args.prompt is None:
+        parser.error("the following arguments are required: --prompt")
+    if not args.input_csv.exists():
+        sys.exit(f"[ERROR] CSV not found: {args.input_csv}")
+
+    manuals_dir = args.manuals_dir
 
     try:
         if args.llm_provider == "openai":
@@ -360,9 +408,9 @@ def main():
     except (FileNotFoundError, RuntimeError, ValueError) as e:
         sys.exit(f"[ERROR] {e}")
 
-    rows = read_csv_rows(args.csv, ["manufacturer", "module", "quantity", "manual file name"])
+    rows = read_csv_rows(args.input_csv, ["manufacturer", "module", "quantity", "manual file name"])
     if not rows:
-        sys.exit(f"No module rows found in {args.csv}")
+        sys.exit(f"No module rows found in {args.input_csv}")
 
     print(f"[INFO] Determining which of {len(rows)} modules are in scope...")
     scoped = determine_scope(backend, args.prompt, rows)

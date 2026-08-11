@@ -113,11 +113,18 @@ line and only consults the manuals that are relevant:
    in-scope module list — to the `answers` output directory
 
 Supported LLM providers:
-- `openai` (default) — uses the OpenAI API; reads the API key from `openai.key`
-- `claude` — uses the [Claude Code](https://claude.com/claude-code) CLI (`claude` must
-  be on your `PATH`); no API key file needed
+- `claude` (default) — uses the [Claude Code](https://claude.com/claude-code) CLI
+  (`claude` must be on your `PATH`); no API key file needed. Defaults to the
+  `claude-fable-5` model.
+- `openai` — uses the OpenAI API; reads the API key from `openai.key`. Defaults
+  to the `gpt-4.1` model.
 - `codex` — uses the [OpenAI Codex](https://developers.openai.com/codex/cli) CLI
-  (`codex` must be on your `PATH`); no API key file needed
+  (`codex` must be on your `PATH`); no API key file needed. Uses the CLI's
+  configured default model unless `--model` is given.
+
+Passing `--model` with no value lists the known models for the selected provider
+and exits, e.g. `ask.py --llm-provider codex --model` — any other model ID the
+backend supports may also be passed.
 
 ### Claude Authentication
 
@@ -140,20 +147,21 @@ against your subscription.
 exits with instructions to log in first.
 
 ```bash
-usage: ask.py [-h] --prompt PROMPT --csv CSV [--manuals-dir MANUALS_DIR]
-              [--markdown-dir MARKDOWN_DIR]
+usage: ask.py [-h] [--prompt PROMPT] [--input-csv INPUT_CSV]
+              [--manuals-dir MANUALS_DIR] [--markdown-dir MARKDOWN_DIR]
               [--output-directory OUTPUT_DIRECTORY]
-              [--llm-provider {openai,claude,codex}] [--model MODEL]
+              [--llm-provider {openai,claude,codex}] [--model [MODEL]]
               [--key-file KEY_FILE] [--max-manuals MAX_MANUALS]
 
 options:
   -h, --help            show this help message and exit
   --prompt PROMPT       The question to answer.
-  --csv CSV             Path to csv file containing modules and manual file
-                        paths (e.g. README.csv)
+  --input-csv INPUT_CSV
+                        Path to csv file containing modules and manual file
+                        paths [default='README.csv']
   --manuals-dir MANUALS_DIR
-                        Directory where manual PDFs are stored [default: the
-                        CSV's directory]
+                        Directory where manual PDFs are stored
+                        [default='manuals']
   --markdown-dir MARKDOWN_DIR
                         Directory searched recursively for previous answers
                         involving the in-scope modules [default: the answers
@@ -163,9 +171,11 @@ options:
                         [default='answers']
   --llm-provider {openai,claude,codex}
                         LLM provider: OpenAI API, Claude Code CLI, or Codex
-                        CLI [default='openai']
-  --model MODEL         Model override (backend-specific; default gpt-4.1 for
-                        openai)
+                        CLI [default='claude']
+  --model [MODEL]       Model override (backend-specific; default claude-
+                        fable-5 for claude, gpt-4.1 for openai). Pass --model
+                        with no value to list known models for the selected
+                        provider.
   --key-file KEY_FILE   Path to a file containing an OpenAI API Key [default
                         'openai.key']
   --max-manuals MAX_MANUALS
@@ -175,11 +185,12 @@ options:
 ### Run
 ```bash
 python3 scripts/ask.py --prompt "How do I use the clock input on the 2hp Arp module?" \
-  --csv ../eurorack-manuals-repo/README.csv --llm-provider claude
+  --input-csv ../eurorack-manuals-repo/README.csv
 ```
 
 Notes:
-- If `--manuals-dir` is not given, PDFs are looked up in the same directory as the CSV.
+- If `--input-csv` / `--manuals-dir` are not given, `README.csv` and the `manuals`
+  directory in the current working directory are used.
 - If more than `--max-manuals` manuals are in scope, only the first N are attached
   (the dropped ones are logged).
 - Answer files are named after the question plus a timestamp, e.g.
@@ -239,10 +250,15 @@ and the fourth column are both optional, so a bare
 `"manufacturer","module",quantity` listing works too.
 
 By default the CSV is updated in place and manuals are looked up/downloaded in
-the CSV's own directory, so completing an existing collection is just:
+the `manuals` directory of the current working directory. When no input flag is
+given at all, `README.csv` in the current directory is used, so completing an
+existing collection is just:
 
 ```bash
-python3 scripts/find_manuals.py --input-csv ../eurorack-manuals-repo/README.csv
+python3 scripts/find_manuals.py
+# or, for a CSV elsewhere:
+python3 scripts/find_manuals.py --input-csv ../eurorack-manuals-repo/README.csv \
+  --manuals-dir ../eurorack-manuals-repo
 ```
 
 ### 3. Or start from a ModularGrid rack
@@ -290,7 +306,7 @@ processed. Delete a module's PDF (or blank its CSV entry) to force a re-fetch.
 
 ```bash
 usage: find_manuals.py [-h]
-                       (--modules MODULES | --input-csv INPUT_CSV | --rack-url RACK_URL)
+                       [--modules MODULES | --input-csv INPUT_CSV | --rack-url RACK_URL]
                        [--output-csv OUTPUT_CSV] [--manuals-dir MANUALS_DIR]
                        [--llm-provider {claude,codex}] [--model MODEL]
 
@@ -303,7 +319,8 @@ options:
                         Existing README.csv-style CSV; rows whose 'manual file
                         name' column is missing, empty, or not a valid PDF on
                         disk are (re)processed. Header row and the fourth
-                        column are optional.
+                        column are optional. [default: 'README.csv' when
+                        neither --modules nor --rack-url is given]
   --rack-url RACK_URL   ModularGrid rack URL (e.g. https://modulargrid.net/e/m
                         odules_racks/data_sheet/2250471); the rack's module
                         list is fetched from its public view page.
@@ -312,8 +329,8 @@ options:
                         README.csv format [default: --input-csv if given, else
                         'README.csv']
   --manuals-dir MANUALS_DIR
-                        Directory to download manual PDFs into [default: the
-                        --input-csv's directory if given, else 'manuals']
+                        Directory to download manual PDFs into
+                        [default='manuals']
   --llm-provider {claude,codex}
                         LLM CLI used to research manual URLs [default='claude']
   --model MODEL         Model override (backend-specific)
