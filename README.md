@@ -53,6 +53,38 @@ pip install -r scripts/requirements.txt
 ### 4) Install OpenAI API Key
 By default the script looks for an OpenAI API key in a file `openai.key`.
 
+## Claude Code skills
+
+The repo ships two [Claude Code](https://claude.com/claude-code) skills (in
+`.claude/skills/`) that wrap the scripts below as slash commands. Run `claude`
+from the repo root and use:
+
+### `/eurorack-import [MODULARGRID_URL]`
+
+Imports a ModularGrid rack: runs `find_manuals.py --rack-url` to build
+`README.csv` from the rack's module list and find/download every module's
+manual PDF into `manuals/`. Accepts any public rack URL containing the rack id
+(data sheet or rack view link). Finishes with a summary of real manuals
+downloaded, product-page fallbacks, and modules where no manual was found.
+Safe to re-run — only modules without a valid PDF are (re)processed.
+
+```
+/eurorack-import https://modulargrid.net/e/modules_racks/data_sheet/2250471
+```
+
+### `/eurorack-question [QUESTION]`
+
+Asks a one-off question about your system: runs `ask.py` against `README.csv`
+and the `manuals/` directory, relays the answer, and documents it as a markdown
+file in `answers/` (where later questions can build on it). Requires a prior
+`/eurorack-import` (or an existing `README.csv` + `manuals/`).
+
+```
+/eurorack-question How do I use the clock input on the 2hp Arp module?
+```
+
+Both skills use the `claude` CLI as the LLM backend by default, so they need a
+logged-in `claude` (see [Claude Authentication](#claude-authentication) below).
 
 ## Usage: `process_manuals.py`
 
