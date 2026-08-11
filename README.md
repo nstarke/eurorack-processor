@@ -284,7 +284,14 @@ downloaded PDFs.
 
 - The `claude` or `codex` CLI on your `PATH`, logged in — authentication works
   the same as for `ask.py` (see above). The LLM is used to research each
-  module's manual URL and product page via web search.
+  module's manual URL and product page via web search. With the `claude`
+  backend this script defaults to `claude-opus-5` rather than the
+  `claude-fable-5` used by `ask.py` and `process_manuals.py`: finding a manual
+  is a search-and-extract task where search quality matters more than deep
+  reasoning, and it runs once per module — the highest-volume LLM use in the
+  repo — so the cheaper model stretches subscription usage limits further with
+  no real loss in quality. For stubborn long-tail modules whose manuals are
+  hard to track down, re-run just the gaps with `--model claude-fable-5`.
 - Chrome/Chromium (optional, recommended) — used to save product pages as PDFs
   when no manual exists; falls back to weasyprint if not installed.
 
@@ -402,5 +409,6 @@ options:
                         [default='manuals']
   --llm-provider {claude,codex}
                         LLM CLI used to research manual URLs [default='claude']
-  --model MODEL         Model override (backend-specific)
+  --model MODEL         Model override (backend-specific; default claude-
+                        opus-5 for claude)
 ```

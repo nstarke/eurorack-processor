@@ -137,7 +137,7 @@ class ClaudeBackend:
                 "Run `claude` and use the /login command to sign in with your "
                 "Claude Pro/Max subscription, then re-run this script."
             )
-        self.model = model or "claude-fable-5"
+        self.model = model or "claude-opus-5"
 
     def complete_text(self, prompt: str) -> str:
         cmd = ["claude", "-p", "--allowedTools", "WebSearch,WebFetch"]
@@ -606,7 +606,7 @@ def main():
     parser.add_argument("--llm-provider", choices=["claude", "codex"], default="claude",
                         help="LLM CLI used to research manual URLs [default='claude']")
     parser.add_argument("--model", default=None,
-                        help="Model override (backend-specific; default claude-fable-5 for claude)")
+                        help="Model override (backend-specific; default claude-opus-5 for claude)")
     args = parser.parse_args()
 
     # No source given: default to filling in the gaps of ./README.csv.
