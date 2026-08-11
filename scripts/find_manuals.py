@@ -669,9 +669,20 @@ def main():
         try:
             info = research_module(backend, line)
         except Exception as e:
-            print(f"    [FAIL] LLM research failed: {e}")
-            failures.append(line)
-            continue
+            if not item["manufacturer"]:
+                print(f"    [FAIL] LLM research failed: {e}")
+                failures.append(line)
+                continue
+            # The manufacturer/module names are already known, so the
+            # archive.org fallback can still run without the LLM.
+            print(f"    [WARN] LLM research failed: {e}")
+            print(f"    [INFO] trying archive.org with the known module name instead")
+            info = {
+                "manufacturer": item["manufacturer"],
+                "module": item["module"],
+                "pdf_urls": [],
+                "product_page_url": None,
+            }
 
         # Keep the caller's naming when it was given explicitly, so CSV rows
         # are updated in place rather than duplicated under new spelling.

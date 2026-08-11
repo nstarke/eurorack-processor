@@ -378,6 +378,12 @@ PDF on disk are skipped (without spending an LLM call), so an interrupted or
 partially failed run can simply be re-run — only the missing modules are
 processed. Delete a module's PDF (or blank its CSV entry) to force a re-fetch.
 
+If the LLM research step fails (for example, times out on a module whose
+manual no longer exists on the live web), the module isn't immediately given
+up on: when the manufacturer/module names are already known — CSV rows and
+`manufacturer,module` lines — the script still searches archive.org's item
+library for a manual PDF before recording the module as a failure.
+
 ### Options
 
 ```bash
