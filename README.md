@@ -17,6 +17,8 @@ Repo structure (top-level): `css/`, `csv/`, `prompts/`, `scripts/`
 - Uses scripts (in `scripts/`) to generate output artifacts
 - Applies styling from `css/` when producing web-friendly docs
 - Answers ad-hoc questions about your rack using the relevant module manuals (`ask.py`)
+- Finds and downloads the module manuals themselves from a plain list of modules,
+  building the CSV as it goes (`find_manuals.py`)
 
 Typical outputs you might generate:
 - A “module manual” page (HTML/Markdown)
@@ -185,39 +187,90 @@ Notes:
 
 ## Usage: `find_manuals.py`
 
-Builds the manuals collection itself: takes either a newline-delimited list of
-modules (`--modules`) or an existing README.csv-style CSV (`--input-csv`), finds
-each module's manual PDF on the internet, downloads it, and writes a CSV in the
-same format as `eurorack-manuals-repo/README.csv`
-(`"manufacturer","module",quantity,"manual file name"`).
+Builds the manuals collection itself: given a list of modules, it finds each
+module's manual PDF on the internet, downloads it, and writes a CSV in the same
+format as `eurorack-manuals-repo/README.csv`:
 
-With `--input-csv`, the fourth "manual file name" column (and the header row) are
-optional — the script iterates over every row and only (re)processes the ones
-whose manual value is missing, empty, or not a valid PDF on disk. By default the
-CSV is updated in place and manuals are looked up/downloaded in the CSV's own
-directory, so filling in the gaps of an existing collection is just:
+```csv
+"manufacturer","module","quantity","manual file name"
+"2hp","Pluck",1,"2hp_Pluck_Manual.pdf"
+"Make Noise","MATHS",1,"Make_Noise_MATHS_Manual.pdf"
+```
+
+The other scripts (`process_manuals.py`, `ask.py`) consume this CSV and the
+downloaded PDFs.
+
+### Prerequisites
+
+- The `claude` or `codex` CLI on your `PATH`, logged in — authentication works
+  the same as for `ask.py` (see above). The LLM is used to research each
+  module's manual URL and product page via web search.
+- Chrome/Chromium (optional, recommended) — used to save product pages as PDFs
+  when no manual exists; falls back to weasyprint if not installed.
+
+### 1. Start from a list of modules
+
+Write one module per line — free text or `manufacturer,module`. Blank lines and
+`#` comments are ignored, and listing a module twice sets its `quantity` to 2:
+
+```
+# modules.txt
+Make Noise Maths
+2hp,Pluck
+Mutable Instruments Plaits
+Mutable Instruments Plaits
+```
+
+Then run:
+
+```bash
+python3 scripts/find_manuals.py --modules modules.txt \
+  --output-csv README.csv --manuals-dir manuals
+```
+
+`--modules -` reads the list from stdin instead of a file.
+
+### 2. Or start from an existing CSV
+
+`--input-csv` accepts a README.csv-style CSV and fills in its gaps: every row
+whose `manual file name` is missing, empty, or not a valid PDF on disk gets
+(re)processed, while rows with valid manuals are left untouched. The header row
+and the fourth column are both optional, so a bare
+`"manufacturer","module",quantity` listing works too.
+
+By default the CSV is updated in place and manuals are looked up/downloaded in
+the CSV's own directory, so completing an existing collection is just:
 
 ```bash
 python3 scripts/find_manuals.py --input-csv ../eurorack-manuals-repo/README.csv
 ```
 
+### How it finds a manual
+
 For each module it tries, in order:
 
-1. **Manual PDF** — an LLM CLI (`claude -p` with WebSearch, or `codex exec --search`)
-   researches the module and returns candidate manual PDF URLs plus the product page
-   URL; each candidate is downloaded and validated as a real PDF.
-2. **Product page as PDF** — if no manual PDF is found, the product web page is saved
-   as a PDF (headless Chrome/Chromium, falling back to weasyprint).
-3. **archive.org** — as a last resort, the archive.org item library is searched for a
-   matching PDF, and the Wayback Machine is checked for a snapshot of the product page.
+1. **Manual PDF** — the LLM CLI (`claude -p` with WebSearch, or
+   `codex exec --search`) researches the module and returns candidate manual
+   PDF URLs plus the product page URL; each candidate is downloaded and
+   validated as a real PDF (HTML error pages and dead links are rejected).
+2. **Product page as PDF** — if no manual PDF is found, the product web page is
+   saved as a PDF (headless Chrome/Chromium, falling back to weasyprint). These
+   are named `..._Product_Page.pdf` so they're distinguishable from real manuals.
+3. **archive.org** — as a last resort, the archive.org item library is searched
+   for a matching PDF, and the Wayback Machine is checked for a snapshot of the
+   product page.
 
-Input lines may be free text (`Make Noise Maths`) or pre-parsed
-(`Make Noise,Maths`); duplicate lines increment the module's `quantity`. Modules
-already in the output CSV with a valid PDF on disk are skipped, and the CSV is
-rewritten after each module, so interrupted runs can simply be re-run.
+Modules where all three approaches fail still get a CSV row with an empty
+`manual file name`, and are listed in a summary at the end of the run.
 
-Authentication works the same as `ask.py`: `claude` uses your Claude Pro/Max
-subscription login, `codex` uses your ChatGPT subscription login (see above).
+### Resuming and re-running
+
+The CSV is rewritten after every module, and modules that already have a valid
+PDF on disk are skipped (without spending an LLM call), so an interrupted or
+partially failed run can simply be re-run — only the missing modules are
+processed. Delete a module's PDF (or blank its CSV entry) to force a re-fetch.
+
+### Options
 
 ```bash
 usage: find_manuals.py [-h] (--modules MODULES | --input-csv INPUT_CSV)
@@ -245,14 +298,3 @@ options:
                         LLM CLI used to research manual URLs [default='claude']
   --model MODEL         Model override (backend-specific)
 ```
-
-### Run
-```bash
-python3 scripts/find_manuals.py --modules modules.txt \
-  --output-csv ../eurorack-manuals-repo/README.csv \
-  --manuals-dir ../eurorack-manuals-repo \
-  --llm-provider claude
-```
-
-Modules where nothing could be found are written to the CSV with an empty
-`manual file name` and listed at the end of the run.
