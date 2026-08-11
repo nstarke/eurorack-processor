@@ -9,7 +9,8 @@ Flow:
      plus any previous answers in the answers directory whose "Modules In Scope"
      list involves an in-scope module.
   4. Submit the question plus those manuals and previous answers to the backend.
-  5. Write the answer as a markdown file into the answers output directory.
+  5. Write the answer as a markdown file into the answers output directory, plus
+     HTML and PDF versions (same conversion pipeline as process_manuals.py).
   6. Regenerate the answers directory's index.html listing every answer.
   7. Link the answers index from the top-level index.html next to the answers
      directory, if not already linked (creating a minimal index if missing).
@@ -26,6 +27,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from process_manuals import convert_md_to_html, convert_md_to_pdf
 
 
 # ---------- helpers ----------
@@ -163,8 +166,9 @@ def parse_answer_modules(text: str) -> list[str]:
 
 def write_answers_index(answers_dir: Path):
     """
-    Regenerate <answers_dir>/index.html listing every answer markdown file,
-    newest first, with its question, in-scope modules, and date.
+    Regenerate <answers_dir>/index.html listing every answer, newest first, with
+    its question, links to each available format (md/html/pdf), in-scope modules,
+    and date.
     """
     entries = []
     for md in sorted(answers_dir.rglob("*.md")):
@@ -180,16 +184,31 @@ def write_answers_index(answers_dir: Path):
             timestamp = f"{date[:4]}-{date[4:6]}-{date[6:]} {time[:2]}:{time[2:4]}"
         else:
             timestamp = ""
-        entries.append((timestamp, question, modules, md.relative_to(answers_dir).as_posix()))
+        formats = {
+            kind: md.with_suffix(f".{kind}").relative_to(answers_dir).as_posix()
+            for kind in ("md", "html", "pdf")
+            if md.with_suffix(f".{kind}").exists()
+        }
+        entries.append((timestamp, question, modules, formats))
 
     entries.sort(key=lambda e: e[0], reverse=True)
 
+    def link(kind: str, href: str | None) -> str:
+        if href is None:
+            return '<span style="color:#999">—</span>'
+        return f'<a href="{htmllib.escape(href)}">{htmllib.escape(kind)}</a>'
+
     if entries:
         rows = []
-        for timestamp, question, modules, href in entries:
+        for timestamp, question, modules, formats in entries:
+            # Link the question to the friendliest available format.
+            main_href = formats.get("html") or formats.get("md")
             rows.append(
                 "<tr>"
-                f'<td><a href="{htmllib.escape(href)}">{htmllib.escape(question)}</a></td>'
+                f'<td><a href="{htmllib.escape(main_href)}">{htmllib.escape(question)}</a></td>'
+                f"<td>{link('md', formats.get('md'))}</td>"
+                f"<td>{link('html', formats.get('html'))}</td>"
+                f"<td>{link('pdf', formats.get('pdf'))}</td>"
                 f"<td>{htmllib.escape(', '.join(modules))}</td>"
                 f"<td>{htmllib.escape(timestamp)}</td>"
                 "</tr>"
@@ -199,6 +218,9 @@ def write_answers_index(answers_dir: Path):
   <thead>
     <tr>
       <th>Question</th>
+      <th>md</th>
+      <th>html</th>
+      <th>pdf</th>
       <th>Modules In Scope</th>
       <th>Date</th>
     </tr>
@@ -531,6 +553,11 @@ def main():
                         help="Path to a file containing an OpenAI API Key [default 'openai.key']")
     parser.add_argument("--max-manuals", type=int, default=10,
                         help="Maximum number of manual PDFs to attach [default=10]")
+    parser.add_argument("--css", type=Path, default=Path("css/basic.css"),
+                        help="Optional CSS file for HTML/PDF styling [default='css/basic.css']")
+    parser.add_argument("--generate-pdf", default=True, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--generate-html", default=True, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--pdf-engine")
 
     args = parser.parse_args()
 
@@ -632,6 +659,26 @@ def main():
     )
     out_path.write_text(header + answer + "\n", encoding="utf-8")
     print(f"[OK] Answer written to {out_path}")
+
+    css = args.css if args.css and args.css.exists() else None
+    if args.css and css is None:
+        print(f"[WARN] CSS file not found, styling skipped: {args.css}")
+
+    if args.generate_html:
+        html_path = out_path.with_suffix(".html")
+        try:
+            convert_md_to_html(out_path, html_path, css)
+            print(f"[OK] HTML written to {html_path}")
+        except Exception as e:
+            print(f"[WARN] HTML generation failed: {e}")
+
+    if args.generate_pdf:
+        pdf_path = out_path.with_suffix(".pdf")
+        try:
+            convert_md_to_pdf(out_path, pdf_path, css, args.pdf_engine)
+            print(f"[OK] PDF written to {pdf_path}")
+        except Exception as e:
+            print(f"[WARN] PDF generation failed: {e}")
 
     write_answers_index(args.output_directory)
     print(f"[OK] Index updated at {args.output_directory / 'index.html'}")

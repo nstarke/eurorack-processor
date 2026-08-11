@@ -6,19 +6,23 @@
 
 This repo is a small Python-based toolkit for generating consistent, repeatable documentation for Eurorack modules from structured inputs (CSV) plus reusable templates/prompts, with optional styling assets.
 
-Repo structure (top-level): `css/`, `csv/`, `prompts/`, `scripts/`
+Repo structure (top-level): `css/`, `csv/`, `prompts/`, `scripts/`, `.claude/skills/`
 
 ---
 
 ## What it does
 
-- Takes module data (typically from `csv/`) 
+- Takes module data from a README.csv-style CSV (built by `find_manuals.py`, or
+  hand-written — see `csv/`)
 - Uses prompts/templates (in `prompts/`) to format/assemble doc content
 - Uses scripts (in `scripts/`) to generate output artifacts
 - Applies styling from `css/` when producing web-friendly docs
-- Answers ad-hoc questions about your rack using the relevant module manuals (`ask.py`)
-- Finds and downloads the module manuals themselves from a plain list of modules,
-  building the CSV as it goes (`find_manuals.py`)
+- Answers ad-hoc questions about your rack using the relevant module manuals
+  (`ask.py`), saving each answer as markdown/HTML/PDF with a browsable index
+- Finds and downloads the module manuals themselves from a plain list of modules
+  or a ModularGrid rack, building the CSV as it goes (`find_manuals.py`)
+- Ships Claude Code skills (`/eurorack-import`, `/eurorack-question`) that chain
+  the scripts into one-command workflows
 
 Typical outputs you might generate:
 - A “module manual” page (HTML/Markdown)
@@ -50,9 +54,6 @@ source .venv/bin/activate
 pip install -r scripts/requirements.txt
 ```
 
-### 4) Install OpenAI API Key
-By default the script looks for an OpenAI API key in a file `openai.key`.
-
 ## Claude Code skills
 
 The repo ships two [Claude Code](https://claude.com/claude-code) skills (in
@@ -77,9 +78,10 @@ docs. Safe to re-run — only modules without a valid PDF are (re)processed.
 ### `/eurorack-question [QUESTION]`
 
 Asks a one-off question about your system: runs `ask.py` against `README.csv`
-and the `manuals/` directory, relays the answer, and documents it as a markdown
-file in `answers/` (where later questions can build on it). Requires a prior
-`/eurorack-import` (or an existing `README.csv` + `manuals/`).
+and the `manuals/` directory, relays the answer, and documents it in `answers/`
+as markdown, HTML, and PDF, refreshing the `answers/index.html` listing (later
+questions build on previous answers). Requires a prior `/eurorack-import` (or an
+existing `README.csv` + `manuals/`).
 
 ```
 /eurorack-question How do I use the clock input on the 2hp Arp module?
@@ -91,7 +93,8 @@ logged-in `claude` (see [Claude Authentication](#claude-authentication) below).
 ## Usage: `process_manuals.py`
 
 Generates a documentation page (markdown/HTML/PDF) for every module in the CSV by
-running a prompt file against each module's manual.
+running a prompt file against each module's manual, plus navigable `index.html`
+pages for browsing the output tree.
 
 Supports the same LLM providers as `ask.py` (see below for authentication):
 `openai` (the default; reads the API key from `openai.key`), `claude`
@@ -137,7 +140,7 @@ options:
 
 ### Run
 ```bash
-python3 scripts/process_manuals.py --prompt prompts/cheatsheet.txt --input-csv csv/MODULES.csv
+python3 scripts/process_manuals.py --prompt prompts/cheatsheet.txt --input-csv README.csv --llm-provider claude
 ```
 
 ## Usage: `ask.py`
@@ -154,10 +157,13 @@ line and only consults the manuals that are relevant:
 3. Submits the question plus those manuals and previous answers to the LLM
    provider
 4. Writes the answer as a markdown file — including the original question and the
-   in-scope module list — to the `answers` output directory
+   in-scope module list — to the `answers` output directory, plus HTML and PDF
+   versions using the same conversion pipeline (and `--css`/`--generate-html`/
+   `--generate-pdf`/`--pdf-engine` options) as `process_manuals.py`
 5. Regenerates `answers/index.html`: a table of every answer (newest first) with
-   its question, in-scope modules, and date, linking to the markdown files —
-   like the navigable indexes `process_manuals.py` writes for its output
+   its question, links to each available format (md/html/pdf), in-scope modules,
+   and date — like the navigable indexes `process_manuals.py` writes for its
+   output
 6. Makes sure the top-level `index.html` (in the answers directory's parent)
    links to `answers/index.html` — an existing index gets the link appended to
    its list only if missing; if there is no index yet, a minimal one is created
@@ -183,8 +189,8 @@ run `claude` and use the `/login` command — this opens a browser OAuth flow an
 your credentials locally in `~/.claude/.credentials.json`. Usage is billed against your
 subscription.
 
-`ask.py` checks for that credentials file before running; if it doesn't exist, the
-script exits with instructions to log in first.
+The scripts check for that credentials file before running; if it doesn't exist, they
+exit with instructions to log in first.
 
 ### Codex Authentication
 
@@ -193,15 +199,17 @@ sign in, run `codex login` and choose "Sign in with ChatGPT" — this opens a br
 OAuth flow and stores your credentials locally in `~/.codex/auth.json`. Usage is billed
 against your subscription.
 
-`ask.py` checks for that auth file before running; if it doesn't exist, the script
-exits with instructions to log in first.
+The scripts check for that auth file before running; if it doesn't exist, they exit
+with instructions to log in first.
 
 ```bash
 usage: ask.py [-h] [--prompt PROMPT] [--input-csv INPUT_CSV]
               [--manuals-dir MANUALS_DIR] [--markdown-dir MARKDOWN_DIR]
               [--output-directory OUTPUT_DIRECTORY]
               [--llm-provider {openai,claude,codex}] [--model [MODEL]]
-              [--key-file KEY_FILE] [--max-manuals MAX_MANUALS]
+              [--key-file KEY_FILE] [--max-manuals MAX_MANUALS] [--css CSS]
+              [--generate-pdf | --no-generate-pdf]
+              [--generate-html | --no-generate-html] [--pdf-engine PDF_ENGINE]
 
 options:
   -h, --help            show this help message and exit
@@ -230,6 +238,11 @@ options:
                         'openai.key']
   --max-manuals MAX_MANUALS
                         Maximum number of manual PDFs to attach [default=10]
+  --css CSS             Optional CSS file for HTML/PDF styling
+                        [default='css/basic.css']
+  --generate-pdf, --no-generate-pdf
+  --generate-html, --no-generate-html
+  --pdf-engine PDF_ENGINE
 ```
 
 ### Run
@@ -244,7 +257,8 @@ Notes:
 - If more than `--max-manuals` manuals are in scope, only the first N are attached
   (the dropped ones are logged).
 - Answer files are named after the question plus a timestamp, e.g.
-  `answers/how-do-i-use-the-clock-input-on-the-2hp-arp-module-20260811-143221.md`
+  `answers/how-do-i-use-the-clock-input-on-the-2hp-arp-module-20260811-143221.md`,
+  with the `.html` and `.pdf` versions written alongside under the same name
 
 ## Usage: `find_manuals.py`
 
