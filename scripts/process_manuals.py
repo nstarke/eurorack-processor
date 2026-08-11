@@ -8,9 +8,8 @@ import threading
 import sys
 import shutil
 import subprocess
+import tempfile
 import html as htmllib
-
-from openai import OpenAI
 
 
 # ---------- helpers ----------
@@ -81,6 +80,130 @@ def ensure_relative_path(from_dir: Path, target: Path) -> str:
     """Return a posix relative path from from_dir to target (works for siblings)."""
     rel = os.path.relpath(str(target), start=str(from_dir))
     return Path(rel).as_posix()
+
+
+# ---------- LLM backends ----------
+
+class OpenAIBackend:
+    """Uses the OpenAI API; uploads each manual once and reuses the file ID."""
+
+    def __init__(self, key_file: Path, model: str | None):
+        from openai import OpenAI
+
+        self.client = OpenAI(api_key=load_openai_key(key_file))
+        self.model = model or "gpt-4.1"
+        self._upload_cache: dict[Path, str] = {}
+        self._cache_lock = threading.Lock()
+
+    def generate_doc(self, prompt: str, pdf_path: Path) -> str:
+        with self._cache_lock:
+            file_id = self._upload_cache.get(pdf_path)
+
+        if not file_id:
+            with pdf_path.open("rb") as f:
+                uploaded = self.client.files.create(file=f, purpose="user_data")
+            file_id = uploaded.id
+            with self._cache_lock:
+                self._upload_cache[pdf_path] = file_id
+
+        response = self.client.responses.create(
+            model=self.model,
+            input=[{
+                "role": "user",
+                "content": [
+                    {"type": "input_file", "file_id": file_id},
+                    {"type": "input_text", "text": prompt},
+                ],
+            }],
+        )
+        return response.output_text
+
+
+class ClaudeBackend:
+    """Uses the Claude Code CLI (`claude -p`) with a subscription login; no API key file needed."""
+
+    CREDENTIALS_FILE = Path.home() / ".claude" / ".credentials.json"
+
+    def __init__(self, model: str | None):
+        if shutil.which("claude") is None:
+            raise FileNotFoundError(
+                "`claude` CLI not found on PATH. "
+                "Install Claude Code: https://claude.com/claude-code"
+            )
+        if not self.CREDENTIALS_FILE.exists():
+            raise RuntimeError(
+                f"Claude Code subscription login not found ({self.CREDENTIALS_FILE} does not exist).\n"
+                "Run `claude` and use the /login command to sign in with your "
+                "Claude Pro/Max subscription, then re-run this script."
+            )
+        self.model = model or "claude-fable-5"
+
+    def generate_doc(self, prompt: str, pdf_path: Path) -> str:
+        pdf_path = pdf_path.resolve()
+        full_prompt = (
+            f"{prompt}\n\n"
+            f"Read the following manual PDF and base the output on it:\n- {pdf_path}\n"
+        )
+        cmd = [
+            "claude", "-p",
+            "--model", self.model,
+            "--allowedTools", "Read",
+            "--add-dir", str(pdf_path.parent),
+        ]
+        result = subprocess.run(cmd, input=full_prompt, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"claude CLI failed:\n{result.stderr}")
+        return result.stdout.strip()
+
+
+class CodexBackend:
+    """Uses the OpenAI Codex CLI (`codex exec`) with a ChatGPT subscription login."""
+
+    AUTH_FILE = Path.home() / ".codex" / "auth.json"
+
+    def __init__(self, model: str | None):
+        if shutil.which("codex") is None:
+            raise FileNotFoundError(
+                "`codex` CLI not found on PATH. "
+                "Install Codex: https://developers.openai.com/codex/cli"
+            )
+        if not self.AUTH_FILE.exists():
+            raise RuntimeError(
+                f"Codex ChatGPT login not found ({self.AUTH_FILE} does not exist).\n"
+                "Run `codex login` and choose 'Sign in with ChatGPT' to sign in with "
+                "your ChatGPT subscription, then re-run this script."
+            )
+        self.model = model
+
+    def generate_doc(self, prompt: str, pdf_path: Path) -> str:
+        pdf_path = pdf_path.resolve()
+        full_prompt = (
+            f"{prompt}\n\n"
+            f"Read the following manual PDF and base the output on it (extract its text "
+            f"with a tool such as pdftotext if needed):\n- {pdf_path}\n"
+        )
+        # codex exec prints progress logs to stdout; --output-last-message captures
+        # just the agent's final answer.
+        with tempfile.NamedTemporaryFile(mode="r", suffix=".md", delete=False) as out:
+            out_path = Path(out.name)
+        try:
+            cmd = [
+                "codex", "exec",
+                "--sandbox", "read-only",
+                "--skip-git-repo-check",
+                "--output-last-message", str(out_path),
+            ]
+            if self.model:
+                cmd.extend(["-m", self.model])
+            result = subprocess.run(cmd, input=full_prompt, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(f"codex CLI failed:\n{result.stderr}")
+            answer = out_path.read_text(encoding="utf-8").strip()
+            if not answer:
+                raise RuntimeError(f"codex CLI returned an empty answer:\n{result.stderr}")
+            return answer
+        finally:
+            out_path.unlink(missing_ok=True)
 
 
 # ---------- conversion backends ----------
@@ -361,10 +484,7 @@ def process_row(
     html_dir,
     pdf_dir,
     manuals_dir,
-    client,
-    upload_cache,
-    cache_lock,
-    model,
+    backend,
     generate_pdf,
     generate_html,
     css,
@@ -409,21 +529,6 @@ def process_row(
     manual_rel_from_html = Path(ensure_relative_path(html_dir, manual_pdf_dst)) if (generate_html and html_dir) else None
     manual_rel_from_pdf = Path(ensure_relative_path(pdf_dir, manual_pdf_dst)) if (generate_pdf and pdf_dir) else None
 
-    # Upload cache uses the *destination* manual path (so cache aligns with what you're linking)
-    with cache_lock:
-        file_id = upload_cache.get(manual_pdf_dst)
-
-    if not file_id:
-        try:
-            with manual_pdf_dst.open("rb") as f:
-                uploaded = client.files.create(file=f, purpose="user_data")
-            file_id = uploaded.id
-            with cache_lock:
-                upload_cache[manual_pdf_dst] = file_id
-        except Exception as e:
-            # If the API still rejects it for any reason, do not crash the whole run
-            return f"[WARN] Skipping {manufacturer} – {module}: upload failed for {manual_pdf_dst}: {e}"
-
     # Add a manual link header to the markdown so HTML/PDF inherit it.
     manual_link_md = f"[Manual PDF]({manual_rel_from_md.as_posix()})"
     preamble_md = (
@@ -432,23 +537,22 @@ def process_row(
         f"---\n\n"
     )
 
+    prompt = (
+        base_prompt
+        + "\n\nInclude a link to the manual PDF at the top of the markdown output. "
+        "Also at the bottom include a link to this Github repository "
+        "https://github.com/nstarke/eurorack-processor with the text "
+        "'Generated With Eurorack Processor'"
+    )
+
     try:
-        response = client.responses.create(
-            model=model,
-            input=[{
-                "role": "user",
-                "content": [
-                    {"type": "input_file", "file_id": file_id},
-                    {"type": "input_text", "text": base_prompt + "\n\nInclude a link to the manual PDF at the top of the markdown output. Also at the bottom include a link to this Github repository https://github.com/nstarke/eurorack-processor with the text 'Generated With Eurorack Processor'"},
-                ],
-            }],
-        )
+        doc_text = backend.generate_doc(prompt, manual_pdf_dst)
     except Exception as e:
-        # Handle API errors (including 400 unsupported_file) gracefully
-        return f"[WARN] Skipping {manufacturer} – {module}: OpenAI request failed: {e}"
+        # Handle backend errors (including 400 unsupported_file) gracefully
+        return f"[WARN] Skipping {manufacturer} – {module}: LLM request failed: {e}"
 
     md_path = md_dir / f"{name}.md"
-    md_path.write_text(preamble_md + response.output_text, encoding="utf-8")
+    md_path.write_text(preamble_md + doc_text, encoding="utf-8")
 
     outputs = [md_path]
 
@@ -480,12 +584,18 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--prompt", required=True, type=Path)
-    parser.add_argument("--csv", required=True, type=Path)
+    parser.add_argument("--input-csv", required=True, type=Path)
     parser.add_argument("--manuals-dir", type=Path, default=Path("manuals"))
     parser.add_argument("--output-directory", type=Path, default=Path("output"))
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--model", default="gpt-4.1")
-    parser.add_argument("--key-file", type=Path, default=Path("openai.key"))
+    parser.add_argument("--llm-provider", choices=["openai", "claude", "codex"], default="openai",
+                        help="LLM provider: OpenAI API, Claude Code CLI, or Codex CLI [default='openai']")
+    parser.add_argument("--model", default=None,
+                        help="Model override (backend-specific; default gpt-4.1 for openai, "
+                             "claude-fable-5 for claude)")
+    parser.add_argument("--key-file", type=Path, default=Path("openai.key"),
+                        help="Path to a file containing an OpenAI API Key; only used with "
+                             "--llm-provider openai [default 'openai.key']")
     parser.add_argument("--css", type=Path, help="Optional CSS file for HTML/PDF styling", default=Path("css/basic.css"))
 
     parser.add_argument("--generate-pdf", default=True, action=argparse.BooleanOptionalAction)
@@ -494,8 +604,18 @@ def main():
 
     args = parser.parse_args()
 
-    api_key = load_openai_key(args.key_file)
-    client = OpenAI(api_key=api_key)
+    if not args.input_csv.exists():
+        sys.exit(f"[ERROR] CSV not found: {args.input_csv}")
+
+    try:
+        if args.llm_provider == "openai":
+            backend = OpenAIBackend(args.key_file, args.model)
+        elif args.llm_provider == "claude":
+            backend = ClaudeBackend(args.model)
+        else:
+            backend = CodexBackend(args.model)
+    except (FileNotFoundError, RuntimeError, ValueError, ImportError) as e:
+        sys.exit(f"[ERROR] {e}")
 
     base_output = args.output_directory
     base_output.mkdir(exist_ok=True)
@@ -520,11 +640,8 @@ def main():
     # New: manuals output directory
     (base_output / "manuals").mkdir(parents=True, exist_ok=True)
 
-    rows = read_csv_rows(args.csv, ["manufacturer", "module", "quantity", "manual file name"])
+    rows = read_csv_rows(args.input_csv, ["manufacturer", "module", "quantity", "manual file name"])
     base_prompt = read_text(args.prompt)
-
-    upload_cache = {}
-    lock = threading.Lock()
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         for r in ex.map(
@@ -537,10 +654,7 @@ def main():
                 html_dir,
                 pdf_dir,
                 args.manuals_dir,
-                client,
-                upload_cache,
-                lock,
-                args.model,
+                backend,
                 args.generate_pdf,
                 args.generate_html,
                 args.css,

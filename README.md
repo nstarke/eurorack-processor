@@ -59,12 +59,17 @@ By default the script looks for an OpenAI API key in a file `openai.key`.
 Generates a documentation page (markdown/HTML/PDF) for every module in the CSV by
 running a prompt file against each module's manual.
 
+Supports the same LLM providers as `ask.py` (see below for authentication):
+`openai` (the default; reads the API key from `openai.key`), `claude`
+(Claude Code CLI, default model `claude-fable-5`), and `codex` (Codex CLI).
+
 ```bash
-usage: process_manuals.py [-h] --prompt PROMPT --csv CSV
+usage: process_manuals.py [-h] --prompt PROMPT --input-csv INPUT_CSV
                           [--manuals-dir MANUALS_DIR]
                           [--output-directory OUTPUT_DIRECTORY]
-                          [--workers WORKERS] [--model MODEL]
-                          [--key-file KEY_FILE] [--css CSS]
+                          [--workers WORKERS]
+                          [--llm-provider {openai,claude,codex}]
+                          [--model MODEL] [--key-file KEY_FILE] [--css CSS]
                           [--generate-pdf | --no-generate-pdf]
                           [--generate-html | --no-generate-html]
                           [--pdf-engine PDF_ENGINE]
@@ -73,7 +78,8 @@ options:
   -h, --help            show this help message and exit
   --prompt PROMPT       Path to a file containing a prompt to run against all
                         modules/manuals.
-  --csv CSV             Path to csv file containing modules and manual file
+  --input-csv INPUT_CSV
+                        Path to csv file containing modules and manual file
                         paths
   --manuals-dir MANUALS_DIR
                         Directory to where manuals are initially stored.
@@ -81,9 +87,13 @@ options:
   --output-directory OUTPUT_DIRECTORY
                         Directory to write output files to [default='output']
   --workers WORKERS
-  --model MODEL
-  --key-file KEY_FILE   Path to a file containing an OpenAI API Key [default
-                        'openai.key']
+  --llm-provider {openai,claude,codex}
+                        LLM provider: OpenAI API, Claude Code CLI, or Codex
+                        CLI [default='openai']
+  --model MODEL         Model override (backend-specific; default gpt-4.1 for
+                        openai, claude-fable-5 for claude)
+  --key-file KEY_FILE   Path to a file containing an OpenAI API Key; only used
+                        with --llm-provider openai [default 'openai.key']
   --css CSS             Optional CSS file for HTML/PDF styling
   --generate-pdf, --no-generate-pdf
   --generate-html, --no-generate-html
@@ -93,7 +103,7 @@ options:
 
 ### Run
 ```bash
-python3 scripts/process_manuals.py --prompt prompts/cheatsheet.txt --csv csv/MODULES.csv
+python3 scripts/process_manuals.py --prompt prompts/cheatsheet.txt --input-csv csv/MODULES.csv
 ```
 
 ## Usage: `ask.py`

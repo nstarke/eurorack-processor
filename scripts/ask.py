@@ -405,7 +405,7 @@ def main():
             backend = ClaudeBackend(args.model)
         else:
             backend = CodexBackend(args.model)
-    except (FileNotFoundError, RuntimeError, ValueError) as e:
+    except (FileNotFoundError, RuntimeError, ValueError, ImportError) as e:
         sys.exit(f"[ERROR] {e}")
 
     rows = read_csv_rows(args.input_csv, ["manufacturer", "module", "quantity", "manual file name"])
