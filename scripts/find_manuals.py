@@ -2,11 +2,17 @@
 """
 Find and download eurorack module manuals.
 
-Input: either a newline-delimited list of modules (free text like
-"Make Noise Maths", or pre-parsed "manufacturer,module" lines), or an existing
-README.csv-style CSV (--input-csv) whose "manual file name" column may be
-missing, empty, or point at files that are not valid PDFs — only those rows
-are (re)processed. For each module the script:
+Input, one of:
+  --modules    a newline-delimited list of modules (free text like
+               "Make Noise Maths", or pre-parsed "manufacturer,module" lines)
+  --input-csv  an existing README.csv-style CSV whose "manual file name"
+               column may be missing, empty, or point at files that are not
+               valid PDFs — only those rows are (re)processed
+  --rack-url   a ModularGrid rack URL (e.g.
+               https://modulargrid.net/e/modules_racks/data_sheet/2250471);
+               the rack's module list is fetched from its public view page
+
+For each module the script:
 
   1. Uses an LLM CLI (`claude -p` or `codex exec`) with web search to locate
      the official manual PDF URL and the product web page.
@@ -459,6 +465,55 @@ def build_work_from_modules(path: Path) -> list[dict]:
     return work
 
 
+def build_work_from_modulargrid(url: str) -> list[dict]:
+    """
+    Fetch a ModularGrid rack's module list. Accepts any rack URL containing the
+    rack id (data_sheet, racks/view, ...) — the data_sheet page itself requires
+    a login, but the public rack view page embeds the full module list as JSON.
+    """
+    ids = re.findall(r"\d+", url)
+    if "modulargrid" not in url or not ids:
+        raise ValueError(f"Could not extract a ModularGrid rack id from: {url}")
+    rack_id = ids[-1]
+
+    view_url = f"https://modulargrid.net/e/racks/view/{rack_id}"
+    r = requests.get(view_url, headers={"User-Agent": USER_AGENT}, timeout=60)
+    r.raise_for_status()
+
+    start = r.text.find('{"rack":')
+    if start == -1:
+        raise ValueError(
+            f"No rack data found at {view_url} — the rack may be private or deleted."
+        )
+    data, _ = json.JSONDecoder().raw_decode(r.text[start:])
+
+    rack_name = data["rack"].get("Rack", {}).get("name", "")
+    counts: dict[tuple[str, str], int] = {}
+    order: list[tuple[str, str]] = []
+    for mod in data["rack"].get("Module", []):
+        manufacturer = ((mod.get("Vendor") or {}).get("name") or "").strip()
+        module = (mod.get("name") or "").strip()
+        if not module:
+            continue
+        key = (manufacturer.lower(), module.lower())
+        if key not in counts:
+            counts[key] = 0
+            order.append((manufacturer, module))
+        counts[key] += 1
+
+    print(f"[INFO] ModularGrid rack '{rack_name}' ({rack_id}): "
+          f"{len(order)} distinct module(s)")
+    return [
+        {
+            "line": f"{manufacturer},{module}" if manufacturer else module,
+            "manufacturer": manufacturer or None,
+            "module": module if manufacturer else None,
+            "quantity": counts[(manufacturer.lower(), module.lower())],
+        }
+        for manufacturer, module in order
+    ]
+
+
 def build_work_from_csv(path: Path, rows: dict[tuple[str, str], dict]) -> list[dict]:
     """
     Seed `rows` with every CSV row (so valid rows carry through to the output)
@@ -504,6 +559,10 @@ def main():
                         help="Existing README.csv-style CSV; rows whose 'manual file name' "
                              "column is missing, empty, or not a valid PDF on disk are "
                              "(re)processed. Header row and the fourth column are optional.")
+    source.add_argument("--rack-url",
+                        help="ModularGrid rack URL (e.g. "
+                             "https://modulargrid.net/e/modules_racks/data_sheet/2250471); "
+                             "the rack's module list is fetched from its public view page.")
     parser.add_argument("--output-csv", type=Path, default=None,
                         help="CSV to create/update, in eurorack-manuals-repo README.csv format "
                              "[default: --input-csv if given, else 'README.csv']")
@@ -535,6 +594,13 @@ def main():
         work = build_work_from_csv(args.input_csv, rows)
         if not work:
             sys.exit(f"[ERROR] No module rows found in {args.input_csv}")
+    elif args.rack_url:
+        try:
+            work = build_work_from_modulargrid(args.rack_url)
+        except (ValueError, requests.RequestException) as e:
+            sys.exit(f"[ERROR] {e}")
+        if not work:
+            sys.exit(f"[ERROR] No modules found in rack {args.rack_url}")
     else:
         work = build_work_from_modules(args.modules)
         if not work:

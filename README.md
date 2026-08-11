@@ -245,6 +245,22 @@ the CSV's own directory, so completing an existing collection is just:
 python3 scripts/find_manuals.py --input-csv ../eurorack-manuals-repo/README.csv
 ```
 
+### 3. Or start from a ModularGrid rack
+
+`--rack-url` accepts a link to a ModularGrid rack and processes every module in
+it. Any rack URL containing the rack id works — e.g. a data sheet link
+(`https://modulargrid.net/e/modules_racks/data_sheet/2250471`) or a rack view
+link (`https://modulargrid.net/e/racks/view/2250471`). The module list
+(manufacturer, name, and quantity for duplicated modules) is read from the
+rack's public view page, so no ModularGrid login is needed — but the rack must
+be public, not private.
+
+```bash
+python3 scripts/find_manuals.py \
+  --rack-url "https://modulargrid.net/e/modules_racks/data_sheet/2250471" \
+  --output-csv README.csv --manuals-dir manuals
+```
+
 ### How it finds a manual
 
 For each module it tries, in order:
@@ -273,7 +289,8 @@ processed. Delete a module's PDF (or blank its CSV entry) to force a re-fetch.
 ### Options
 
 ```bash
-usage: find_manuals.py [-h] (--modules MODULES | --input-csv INPUT_CSV)
+usage: find_manuals.py [-h]
+                       (--modules MODULES | --input-csv INPUT_CSV | --rack-url RACK_URL)
                        [--output-csv OUTPUT_CSV] [--manuals-dir MANUALS_DIR]
                        [--llm-provider {claude,codex}] [--model MODEL]
 
@@ -287,6 +304,9 @@ options:
                         name' column is missing, empty, or not a valid PDF on
                         disk are (re)processed. Header row and the fourth
                         column are optional.
+  --rack-url RACK_URL   ModularGrid rack URL (e.g. https://modulargrid.net/e/m
+                        odules_racks/data_sheet/2250471); the rack's module
+                        list is fetched from its public view page.
   --output-csv OUTPUT_CSV
                         CSV to create/update, in eurorack-manuals-repo
                         README.csv format [default: --input-csv if given, else
