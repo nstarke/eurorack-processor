@@ -53,6 +53,28 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
 
+# Fuller Chrome-on-Windows desktop headers, used as a retry when a server
+# rejects the plain USER_AGENT (e.g. Cloudflare returning 403 for bots).
+CHROME_DESKTOP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "application/pdf,image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Ch-Ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
 CSV_FIELDS = ["manufacturer", "module", "quantity", "manual file name"]
 
 
@@ -215,25 +237,34 @@ def research_module(backend, line: str) -> dict:
 
 def download_pdf(url: str, dest: Path) -> bool:
     """Download url to dest and verify it is a real PDF. Returns True on success."""
-    try:
-        with requests.get(
-            url, headers={"User-Agent": USER_AGENT}, timeout=90, stream=True
-        ) as r:
-            r.raise_for_status()
-            with dest.open("wb") as f:
-                for chunk in r.iter_content(chunk_size=1 << 16):
-                    f.write(chunk)
-    except Exception as e:
-        print(f"    [WARN] download failed: {url}: {e}")
-        dest.unlink(missing_ok=True)
-        return False
+    origin = re.match(r"https?://[^/]+", url)
+    retry_headers = dict(CHROME_DESKTOP_HEADERS)
+    if origin:
+        retry_headers["Referer"] = origin.group(0) + "/"
+    attempts = [
+        ({"User-Agent": USER_AGENT}, None),
+        (retry_headers, "retrying with Chrome desktop headers"),
+    ]
+    for headers, note in attempts:
+        if note:
+            print(f"    [INFO] {note}: {url}")
+        try:
+            with requests.get(url, headers=headers, timeout=90, stream=True) as r:
+                r.raise_for_status()
+                with dest.open("wb") as f:
+                    for chunk in r.iter_content(chunk_size=1 << 16):
+                        f.write(chunk)
+        except Exception as e:
+            print(f"    [WARN] download failed: {url}: {e}")
+            dest.unlink(missing_ok=True)
+            continue
 
-    ok, reason = is_probably_pdf(dest)
-    if not ok:
+        ok, reason = is_probably_pdf(dest)
+        if ok:
+            return True
         print(f"    [WARN] {url} is not a valid PDF ({reason})")
         dest.unlink(missing_ok=True)
-        return False
-    return True
+    return False
 
 
 def find_chrome() -> str | None:
